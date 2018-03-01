@@ -1,0 +1,13 @@
+[package]
+name = "altena-core"
+version = "0.0.1"
+authors = ["kngwyu <yuji.kngw.80s.revive@gmail.com>"]
+
+[dependencies]
+euclid = "0.17.0"
+image = "0.18.0"
+piston2d-opengl_graphics = "0.52.0"
+num-traits = "0.2.0"
+
+[dependencies.rect-iter]
+path = "../../rect-iter"
