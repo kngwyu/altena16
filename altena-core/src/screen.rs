@@ -1,6 +1,6 @@
 use image::{ImageBuffer, Primitive, Rgba};
-use euclid::{TypedPoint2D, TypedRect, TypedSize2D, TypedVector2D};
-use num_traits::{ToPrimitive, Zero};
+use euclid::{TypedPoint2D, TypedRect, TypedSize2D, TypedVector2D, vec2};
+use num_traits::ToPrimitive;
 use rect_iter::{RectIter, RectRange, TupleGet, TupleGetMut, XyGet, XyGetMut};
 use std::collections::HashMap;
 use std::ops::Range;
@@ -103,12 +103,11 @@ impl TileDir {
         VARIANTS.into_iter()
     }
     pub fn to_vec(&self) -> DotVector {
-        let vec2d = |x, y| DotVector::new(x, y);
         match *self {
-            LeftUp => vec2d(0, 0),
-            RightUp => vec2d(1, 0),
-            RightDown => vec2d(1, 1),
-            LeftDown => vec2d(0, 1),
+            LeftUp => vec2(0, 0),
+            RightUp => vec2(1, 0),
+            RightDown => vec2(1, 1),
+            LeftDown => vec2(0, 1),
         }
     }
 }
@@ -139,9 +138,9 @@ impl MeshLeaf {
         let intersect = bbox_intersection(self.bbox, other.bbox, offset_s, offset_o)?;
         let tile_s = get_tile_range(intersect, offset_s)?;
         let tile_o = get_tile_range(intersect, offset_o)?;
-        let mask_s = line_mask(&tile_s.x());
-        let mask_o = line_mask(&tile_o.x());
-        for (y_s, y_o) in tile_s.y().zip(tile_o.y()) {
+        let mask_s = line_mask(tile_s.get_x());
+        let mask_o = line_mask(tile_o.get_x());
+        for (y_s, y_o) in tile_s.cloned_y().zip(tile_o.cloned_y()) {
             let masked_s = mask_s(self.inner[y_s as usize]);
             let masked_o = mask_o(other.inner[y_o as usize]);
             if (masked_s & masked_o) != 0 {
@@ -248,11 +247,31 @@ impl MeshTree {
             },
         }
     }
-    fn from_buf_(buf: &ImgBuf, range: RectRange<u32>) {
-        let (xlen, ylen) = (range.xlen(), range.ylen());
-        if xlen <= TILE_SIZE as u32 && ylen <= TILE_SIZE as u32 {
-            MeshLeaf::from_buf(buf, range);
+    fn from_buf_(buf: &ImgBuf, range_orig: RectRange<u32>) {
+        let get_scale = |max_len: u32| {
+            let mut len = TILE_SIZE as u32;
+            for scale in 1..6 {
+                if max_len <= len {
+                    return scale;
+                }
+                len *= 2;
+            }
+            unreachable!("Mesh size {} is too big and not supported!", len)
+        };
+        let (xlen, ylen) = (range_orig.xlen(), range_orig.ylen());
+        let scale = get_scale(cmp::max(xlen, ylen));
+        if scale == 1 {
+            MeshLeaf::from_buf(buf, range_orig);
             return;
+        }
+        for dir in TileDir::variants() {
+            let left_up = dir.to_vec() * scale * TILE_SIZE as i16;
+            let right_down = left_up + vec2(1, 1) * scale * TILE_SIZE as i16;
+            let divided = RectRange::from_corners(left_up, right_down)
+                .unwrap()
+                .to_u32()
+                .unwrap();
+            if let Some(range) = range_orig.intersection(&divided) {}
         }
     }
     /// construct mesh from Image Buffer
