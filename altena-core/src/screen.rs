@@ -1,11 +1,11 @@
 use image::{ImageBuffer, Primitive, Rgba};
-use euclid::{TypedPoint2D, TypedRect, TypedSize2D, TypedVector2D, vec2};
+use euclid::{rect, TypedPoint2D, TypedRect, TypedSize2D, TypedVector2D, vec2};
 use num_traits::ToPrimitive;
 use rect_iter::{RectIter, RectRange, TupleGet, TupleGetMut, XyGet, XyGetMut};
 use std::collections::HashMap;
 use std::ops::Range;
 use std::slice;
-use std::cmp;
+use std::cmp::{max, min};
 pub struct DotSpace;
 pub const DOT_HEIGHT: u16 = 240;
 pub const DOT_WIDTH: u16 = 320;
@@ -184,7 +184,39 @@ impl MeshLeaf {
         }
         None
     }
-    fn from_buf(buf: &ImgBuf, range: RectRange<u32>) {}
+    fn from_buf(buf: &ImgBuf, range: RectRange<u32>) -> Option<MeshLeaf> {
+        let mut exists = false;
+        let (mut min_x, mut min_y, mut max_x, mut max_y) = (TILE_SIZE, TILE_SIZE, 0, 0);
+        let inner = {
+            let mut upd_minmax = |x, y| {
+                min_x = min(min_x, x);
+                min_y = min(min_y, y);
+                max_x = max(max_x, x);
+                max_y = max(max_y, y);
+            };
+            tile_iter()
+                .zip(range)
+                .fold([0u16; TILE_SIZE], |mut array, ((x, y), (buf_x, buf_y))| {
+                    let p = buf.get_pixel(buf_x, buf_y);
+                    if is_trans(p) {
+                        exists = true;
+                        upd_minmax(x, y);
+                        array[y] |= 1 << x;
+                    }
+                    array
+                })
+        };
+        if exists {
+            Some(MeshLeaf {
+                inner: inner,
+                bbox: RectRange::from_corners((min_x, min_y), (max_x + 1, max_y + 1))?
+                    .to_i16()?
+                    .to_rect(),
+            })
+        } else {
+            None
+        }
+    }
 }
 
 /// Node for MeshTree
@@ -247,7 +279,7 @@ impl MeshTree {
             },
         }
     }
-    fn from_buf_(buf: &ImgBuf, range_orig: RectRange<u32>) {
+    fn from_buf_(buf: &ImgBuf, range_orig: RectRange<u32>) -> Option<MeshTree> {
         let get_scale = |max_len: u32| {
             let mut len = TILE_SIZE as u32;
             for scale in 1..6 {
@@ -259,20 +291,40 @@ impl MeshTree {
             unreachable!("Mesh size {} is too big and not supported!", len)
         };
         let (xlen, ylen) = (range_orig.xlen(), range_orig.ylen());
-        let scale = get_scale(cmp::max(xlen, ylen));
+        let scale = get_scale(max(xlen, ylen));
         if scale == 1 {
-            MeshLeaf::from_buf(buf, range_orig);
-            return;
+            let leaf = MeshLeaf::from_buf(buf, range_orig)?;
+            return Some(MeshTree::Leaf(leaf));
         }
-        for dir in TileDir::variants() {
-            let left_up = dir.to_vec() * scale * TILE_SIZE as i16;
-            let right_down = left_up + vec2(1, 1) * scale * TILE_SIZE as i16;
-            let divided = RectRange::from_corners(left_up, right_down)
-                .unwrap()
-                .to_u32()
-                .unwrap();
-            if let Some(range) = range_orig.intersection(&divided) {}
-        }
+        let mut bbox_res: Option<DotRect> = None;
+        let children = TileDir::variants()
+            .filter_map(|dir| {
+                let left_up = dir.to_vec() * scale * TILE_SIZE as i16;
+                let right_down = left_up + vec2(1, 1) * scale * TILE_SIZE as i16;
+                let divided = RectRange::from_corners(left_up, right_down)
+                    .unwrap()
+                    .to_u32()
+                    .unwrap();
+                let inter = range_orig.intersection(&divided)?;
+                let res = MeshTree::from_buf_(buf, inter)?;
+                let bbox = match res {
+                    MeshTree::Leaf(ref leaf) => leaf.bbox,
+                    MeshTree::Node(ref node) => node.bbox,
+                };
+                let bbox = slide_rect(bbox, left_up);
+                bbox_res = match bbox_res {
+                    Some(b) => Some(b.union(&bbox)),
+                    None => Some(bbox),
+                };
+                Some((res, *dir))
+            })
+            .collect();
+        let res = MeshNode {
+            inner: children,
+            bbox: bbox_res?,
+            scale: scale,
+        };
+        Some(MeshTree::Node(res))
     }
     /// construct mesh from Image Buffer
     fn from_buf(buf: &ImgBuf) {
@@ -379,7 +431,7 @@ impl Frame {
             .map(|(tile_x, tile_y)| {
                 let start = |t| TILE_SIZE * (t - 1);
                 let (sx, sy) = (start(tile_x), start(tile_y));
-                let end = |start, len| cmp::min(start + TILE_SIZE, len);
+                let end = |start, len| min(start + TILE_SIZE, len);
                 let buf_rect = RectRange::new(sx, sy, end(sx, w), end(sy, h))
                     .expect("Invalid RectRange construnction in Frame::from_buf!");
                 let tile = tile_iter().zip(buf_rect).fold(
