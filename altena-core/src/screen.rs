@@ -1,11 +1,18 @@
-use image::{ImageBuffer, Primitive, Rgba};
-use euclid::{rect, TypedPoint2D, TypedRect, TypedSize2D, TypedVector2D, vec2};
-use num_traits::ToPrimitive;
-use rect_iter::{RectIter, RectRange, TupleGet, TupleGetMut, XyGet, XyGetMut};
+use ansi_term::Style;
+use ansi_term::Colour as TermRGB;
+use image::{ImageBuffer, Primitive, Rgba, RgbaImage};
+use euclid::{rect, TypedPoint2D, TypedRect, TypedSize2D, TypedVector2D, point2, vec2};
+use num_traits::{FromPrimitive, Num, ToPrimitive};
+use rect_iter::{copy_rect, copy_rect_conv, gen_rect, gen_rect_conv, Get2D, GetMut2D, RectIter,
+                RectRange, ToPoint};
+
 use std::collections::HashMap;
+use std::convert;
 use std::ops::Range;
 use std::slice;
 use std::cmp::{max, min};
+use std::fmt;
+
 pub struct DotSpace;
 pub const DOT_HEIGHT: u16 = 240;
 pub const DOT_WIDTH: u16 = 320;
@@ -31,28 +38,36 @@ impl ToDotVec for DotVector {
     }
 }
 
-pub struct TileSpace;
-pub type TilePoint = TypedPoint2D<u8, TileSpace>;
-pub const TILE_SIZE: usize = 16;
-
 /// Slide ractangle(ract.origin += offset).
-fn slide_rect<T: ToDotVec>(rect: DotRect, offset: T) -> DotRect {
-    let offset = offset.to_dot_vec();
-    macro_rules! new {
-        ($i:ident) => (rect.origin.$i + offset.$i)
-    }
-    DotRect {
-        origin: DotPoint::new(new!(x), new!(y)),
+fn slide_rect<T: Num + Copy, P: ToPoint<T>, Unit>(
+    rect: TypedRect<T, Unit>,
+    offset: P,
+) -> TypedRect<T, Unit> {
+    let offset = offset.to_point();
+    TypedRect {
+        origin: point2(rect.origin.x + offset.0, rect.origin.y + offset.1),
         size: rect.size,
     }
 }
+
+pub struct TileSpace;
+pub type TilePoint = TypedPoint2D<u8, TileSpace>;
+pub const TILE_SIZE: usize = 16;
 
 /// Return tile size(16 × 16)
 fn tile_size() -> DotSize {
     DotSize::new(TILE_SIZE as i16, TILE_SIZE as i16)
 }
 
+fn tile_num(len: usize) -> usize {
+    (len + TILE_SIZE - 1) / TILE_SIZE
+}
+
 /// RectIter for tile
+fn tile_rect() -> RectRange<usize> {
+    RectRange::new(0, 0, TILE_SIZE, TILE_SIZE).unwrap()
+}
+
 fn tile_iter() -> RectIter<usize> {
     RectRange::new(0, 0, TILE_SIZE, TILE_SIZE)
         .unwrap()
@@ -102,12 +117,32 @@ impl TileDir {
         const VARIANTS: &'static [TileDir] = &[LeftUp, RightUp, RightDown, LeftDown];
         VARIANTS.into_iter()
     }
-    pub fn to_vec(&self) -> DotVector {
+    pub fn to_vec<T: From<u8>, U>(&self) -> TypedVector2D<T, U> {
+        use self::TileDir::*;
+        let ret = |x, y| vec2(T::from(x), T::from(y));
         match *self {
-            LeftUp => vec2(0, 0),
-            RightUp => vec2(1, 0),
-            RightDown => vec2(1, 1),
-            LeftDown => vec2(0, 1),
+            LeftUp => ret(0, 0),
+            RightUp => ret(1, 0),
+            RightDown => ret(1, 1),
+            LeftDown => ret(0, 1),
+        }
+    }
+    pub fn x<T: From<u8>>(&self) -> T {
+        use self::TileDir::*;
+        match *self {
+            LeftUp => T::from(0u8),
+            RightUp => T::from(1u8),
+            RightDown => T::from(1u8),
+            LeftDown => T::from(0u8),
+        }
+    }
+    pub fn y<T: From<u8>>(&self) -> T {
+        use self::TileDir::*;
+        match *self {
+            LeftUp => T::from(0u8),
+            RightUp => T::from(0u8),
+            RightDown => T::from(1u8),
+            LeftDown => T::from(1u8),
         }
     }
 }
@@ -120,6 +155,16 @@ pub struct MeshLeaf {
     /// Bounding Box of meshed object.
     /// Its origin is based on upper left corner of tile.
     bbox: DotRect,
+}
+
+impl fmt::Debug for MeshLeaf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "mesh: {{")?;
+        for i in 0..TILE_SIZE {
+            writeln!(f, "{:016b}", self.inner[i])?;
+        }
+        writeln!(f, "}}, bbox: {:?}", self.bbox)
+    }
 }
 
 impl MeshLeaf {
@@ -184,7 +229,8 @@ impl MeshLeaf {
         }
         None
     }
-    fn from_buf(buf: &ImgBuf, range: RectRange<u32>) -> Option<MeshLeaf> {
+    fn from_buf(buf: &RgbaImage, range: RectRange<u32>) -> Option<MeshLeaf> {
+        const MAGIC: u16 = 1 << 15;
         let mut exists = false;
         let (mut min_x, mut min_y, mut max_x, mut max_y) = (TILE_SIZE, TILE_SIZE, 0, 0);
         let inner = {
@@ -198,10 +244,10 @@ impl MeshLeaf {
                 .zip(range)
                 .fold([0u16; TILE_SIZE], |mut array, ((x, y), (buf_x, buf_y))| {
                     let p = buf.get_pixel(buf_x, buf_y);
-                    if is_trans(p) {
+                    if !is_trans(p) {
                         exists = true;
                         upd_minmax(x, y);
-                        array[y] |= 1 << x;
+                        array[y] |= MAGIC >> x;
                     }
                     array
                 })
@@ -217,6 +263,9 @@ impl MeshLeaf {
             None
         }
     }
+    fn get_debug_buf(&self) -> Vec<Vec<u16>> {
+        self.inner.iter().map(|&u| vec![u]).collect()
+    }
 }
 
 /// Node for MeshTree
@@ -231,7 +280,7 @@ impl MeshNode {
         if !bbox_intersects(self.bbox, other.bbox, offset_s, offset_o) {
             return None;
         }
-        let compensate = |v: TileDir| v.to_vec() * self.scale;
+        let compensate = |v: TileDir| v.to_vec() * self.scale * TILE_SIZE as i16;
         for &(ref child_s, dir) in &self.inner {
             let offset_s = offset_s + compensate(dir);
             match *child_s {
@@ -257,9 +306,56 @@ impl MeshNode {
         }
         None
     }
+    fn get_debug_buf(&self) -> Vec<Vec<u16>> {
+        let uscale = self.scale as usize;
+        let child_scale = uscale / 2;
+        self.inner.iter().fold(
+            vec![vec![0u16; uscale]; TILE_SIZE * uscale],
+            |mut vec, &(ref child, dir)| {
+                let child_buf = match *child {
+                    MeshTree::Leaf(ref leaf) => leaf.get_debug_buf(),
+                    MeshTree::Node(ref node) => node.get_debug_buf(),
+                };
+                let res_range = RectRange::zero_start(1, TILE_SIZE)
+                    .unwrap()
+                    .scale(child_scale)
+                    .slide((
+                        child_scale * dir.x::<usize>(),
+                        child_scale * dir.y::<usize>() * TILE_SIZE,
+                    ));
+                let buf_range = RectRange::zero_start(child_buf[0].len(), child_buf.len()).unwrap();
+                copy_rect(&child_buf, &mut vec, buf_range, res_range).unwrap();
+                vec
+            },
+        )
+    }
+    #[allow(dead_code)]
+    fn print_leaf(&self) {
+        for &(ref child_s, dir) in &self.inner {
+            match *child_s {
+                MeshTree::Leaf(ref leaf) => println!("dir: {:?}, leaf: {:?}", dir, leaf),
+                MeshTree::Node(ref node) => node.print_leaf(),
+            }
+        }
+    }
+}
+
+impl fmt::Debug for MeshNode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "mesh: {{")?;
+        let buf = self.get_debug_buf();
+        for i in 0..buf.len() {
+            for j in 0..buf[i].len() {
+                write!(f, "{:016b}", buf[i][j])?;
+            }
+            writeln!(f, "")?;
+        }
+        writeln!(f, "}}, bbox: {:?}", self.bbox)
+    }
 }
 
 /// Utility type for collision detection
+#[derive(Debug)]
 pub enum MeshTree {
     Leaf(MeshLeaf),
     Node(MeshNode),
@@ -279,7 +375,7 @@ impl MeshTree {
             },
         }
     }
-    fn from_buf_(buf: &ImgBuf, range_orig: RectRange<u32>) -> Option<MeshTree> {
+    fn from_buf_(buf: &RgbaImage, range_orig: RectRange<u32>) -> Option<MeshTree> {
         let get_scale = |max_len: u32| {
             let mut len = TILE_SIZE as u32;
             for scale in 1..6 {
@@ -288,7 +384,7 @@ impl MeshTree {
                 }
                 len *= 2;
             }
-            unreachable!("Mesh size {} is too big and not supported!", len)
+            panic!("Mesh size {} is too big and not supported!", len)
         };
         let (xlen, ylen) = (range_orig.xlen(), range_orig.ylen());
         let scale = get_scale(max(xlen, ylen));
@@ -297,21 +393,24 @@ impl MeshTree {
             return Some(MeshTree::Leaf(leaf));
         }
         let mut bbox_res: Option<DotRect> = None;
+        let child_scale = scale / 2;
         let children = TileDir::variants()
             .filter_map(|dir| {
-                let left_up = dir.to_vec() * scale * TILE_SIZE as i16;
-                let right_down = left_up + vec2(1, 1) * scale * TILE_SIZE as i16;
-                let divided = RectRange::from_corners(left_up, right_down)
-                    .unwrap()
-                    .to_u32()
-                    .unwrap();
+                let left_up: TypedVector2D<_, DotSpace> =
+                    dir.to_vec() * child_scale * TILE_SIZE as u32;
+                let right_down = left_up + vec2(1, 1) * child_scale * TILE_SIZE as u32;
+                let divided = RectRange::from_corners(left_up, right_down).unwrap();
                 let inter = range_orig.intersection(&divided)?;
+                println!("dir: {:?}, divided: {:?}, inter: {:?}", dir, divided, inter);
                 let res = MeshTree::from_buf_(buf, inter)?;
                 let bbox = match res {
-                    MeshTree::Leaf(ref leaf) => leaf.bbox,
+                    MeshTree::Leaf(ref leaf) => {
+                        println!("{:?}", leaf);
+                        leaf.bbox
+                    }
                     MeshTree::Node(ref node) => node.bbox,
                 };
-                let bbox = slide_rect(bbox, left_up);
+                let bbox = slide_rect(bbox, (left_up.x as i16, left_up.y as i16));
                 bbox_res = match bbox_res {
                     Some(b) => Some(b.union(&bbox)),
                     None => Some(bbox),
@@ -322,13 +421,15 @@ impl MeshTree {
         let res = MeshNode {
             inner: children,
             bbox: bbox_res?,
-            scale: scale,
+            scale: scale as i16,
         };
         Some(MeshTree::Node(res))
     }
     /// construct mesh from Image Buffer
-    fn from_buf(buf: &ImgBuf) {
+    pub fn from_buf(buf: &RgbaImage) -> Option<MeshTree> {
         let (h, w) = (buf.height(), buf.width());
+        let range = RectRange::zero_start(w, h).unwrap();
+        Self::from_buf_(buf, range)
     }
 }
 
@@ -344,7 +445,7 @@ pub trait Collide {
 }
 
 /// altena don't support alpha blending, so just rgb is enough
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
@@ -362,6 +463,19 @@ impl Color {
             b: rgba[2].to_u8()?,
         })
     }
+    fn to_rgba<T: Primitive + From<u8>>(&self) -> Rgba<T> {
+        let mut res = Rgba {
+            data: [T::zero(); 4],
+        };
+        res[0] = convert::From::from(self.r);
+        res[1] = convert::From::from(self.g);
+        res[2] = convert::From::from(self.b);
+        res[3] = T::max_value();
+        res
+    }
+    fn to_term(&self) -> TermRGB {
+        TermRGB::RGB(self.r, self.g, self.b)
+    }
 }
 
 fn is_trans<T: Primitive>(rgba: &Rgba<T>) -> bool {
@@ -370,11 +484,36 @@ fn is_trans<T: Primitive>(rgba: &Rgba<T>) -> bool {
 
 pub type Dot = Option<Color>;
 
+fn dot_to_rgba<T: Primitive + From<u8>>(dot: &Dot) -> Rgba<T> {
+    match *dot {
+        Some(c) => c.to_rgba(),
+        None => Rgba {
+            data: [T::zero(); 4],
+        },
+    }
+}
 /// 16×16 tile used to draw objects.
 #[derive(Clone)]
 pub struct Tile {
     /// Buffer of tile data
     inner: [Dot; TILE_SIZE * TILE_SIZE],
+}
+
+impl fmt::Debug for Tile {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "tile: {{")?;
+        for i in 0..TILE_SIZE {
+            for j in 0..TILE_SIZE {
+                let &dot = self.get_xy(j, i).unwrap();
+                match dot {
+                    Some(rgb) => write!(f, "{}", Style::new().on(rgb.to_term()).paint("  "))?,
+                    None => write!(f, "  ")?,
+                }
+            }
+            writeln!(f, "")?;
+        }
+        writeln!(f, "}}")
+    }
 }
 
 impl Default for Tile {
@@ -385,9 +524,9 @@ impl Default for Tile {
     }
 }
 
-impl XyGet for Tile {
+impl Get2D for Tile {
     type Item = Dot;
-    fn xy_get<T: ToPrimitive>(&self, x: T, y: T) -> Option<&Dot> {
+    fn get_xy<T: ToPrimitive>(&self, x: T, y: T) -> Option<&Dot> {
         let (x, y) = (x.to_usize()?, y.to_usize()?);
         if TILE_SIZE <= x || TILE_SIZE <= y {
             return None;
@@ -396,9 +535,9 @@ impl XyGet for Tile {
     }
 }
 
-impl XyGetMut for Tile {
+impl GetMut2D for Tile {
     type Item = Dot;
-    fn xy_get_mut<T: ToPrimitive>(&mut self, x: T, y: T) -> Option<&mut Dot> {
+    fn get_mut_xy<T: ToPrimitive>(&mut self, x: T, y: T) -> Option<&mut Dot> {
         let (x, y) = (x.to_usize()?, y.to_usize()?);
         if TILE_SIZE <= x || TILE_SIZE <= y {
             return None;
@@ -406,49 +545,94 @@ impl XyGetMut for Tile {
         Some(&mut self.inner[y * TILE_SIZE + x])
     }
 }
-
-impl TupleGet for Tile {}
-impl TupleGetMut for Tile {}
-
-pub type ImgBuf = ImageBuffer<Rgba<u8>, Vec<u8>>;
-
 /// 1 Frame of sprite
 pub struct Frame {
     /// for drawing
     tiles: Vec<(Tile, TilePoint)>,
     /// for collision
     mesh: MeshTree,
-    tree_base: TilePoint,
+    w_orig: usize,
+    h_orig: usize,
+}
+
+impl fmt::Debug for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "tiles: {{")?;
+        let buf = self.get_debug_buf().unwrap();
+        for i in 0..buf.len() {
+            for j in 0..buf[0].len() {
+                let &dot = buf.get_xy(j, i).unwrap();
+                match dot {
+                    Some(rgb) => write!(f, "{}", Style::new().on(rgb.to_term()).paint("  "))?,
+                    None => write!(f, "  ")?,
+                }
+            }
+            writeln!(f, "")?;
+        }
+        writeln!(f, "}}")?;
+        write!(f, "{:?}", self.mesh)
+    }
 }
 
 impl Frame {
-    fn from_buf(buf: &ImgBuf) -> Option<()> {
+    fn from_buf(buf: &RgbaImage) -> Option<Frame> {
         let (h, w) = (buf.height() as usize, buf.width() as usize);
-        let tile_num = |len| (len + TILE_SIZE - 1) / TILE_SIZE;
-        let tiles: Vec<_> = RectRange::zero_start(tile_num(w), tile_num(w))?
+        let tiles: Vec<_> = RectRange::zero_start(tile_num(w), tile_num(h))?
             .slide((1, 1))
             .into_iter()
             .map(|(tile_x, tile_y)| {
                 let start = |t| TILE_SIZE * (t - 1);
                 let (sx, sy) = (start(tile_x), start(tile_y));
                 let end = |start, len| min(start + TILE_SIZE, len);
-                let buf_rect = RectRange::new(sx, sy, end(sx, w), end(sy, h))
-                    .expect("Invalid RectRange construnction in Frame::from_buf!");
-                let tile = tile_iter().zip(buf_rect).fold(
-                    Tile::default(),
-                    |mut tile, (tile_t, (buf_x, buf_y))| {
-                        let p = buf.get_pixel(buf_x as u32, buf_y as u32);
-                        let dot = Color::from_rgba(p);
-                        *tile.tuple_get_mut(tile_t)
-                            .expect("Index Bug in Frame::from_buf!!") = dot;
-                        tile
-                    },
-                );
-                let tile_p = TilePoint::new(tile_x as u8 - 1, tile_y as u8 - 1);
+                let buf_rect = RectRange::new(sx, sy, end(sx, w), end(sy, h)).unwrap();
+                let tile = gen_rect_conv(buf, buf_rect, tile_rect(), Color::from_rgba)
+                    .expect("Index bug in Frame::frame_buf!!!");
+                let tile_p = point2(tile_x as u8 - 1, tile_y as u8 - 1);
                 (tile, tile_p)
             })
             .collect();
-        None
+        // if MeshTree::from_buf returns None, the image is completely transparent
+        let mesh = MeshTree::from_buf(buf)?;
+        Some(Frame {
+            tiles: tiles,
+            mesh: mesh,
+            w_orig: w,
+            h_orig: h,
+        })
+    }
+    fn get_debug_buf(&self) -> Option<Vec<Vec<Dot>>> {
+        let (w, h) = (self.w_orig, self.h_orig);
+        self.tiles.iter().try_fold(
+            vec![vec![Dot::default(); w]; h],
+            |mut buf, &(ref tile, point)| {
+                let start = |t| TILE_SIZE * t as usize;
+                let (sx, sy) = (start(point.x), start(point.y));
+                let end = |start, len| min(start + TILE_SIZE, len);
+                let buf_rect = RectRange::new(sx, sy, end(sx, w), end(sy, h))?;
+                copy_rect(tile, &mut buf, tile_rect(), buf_rect)?;
+                Some(buf)
+            },
+        )
+    }
+    fn get_img_buf(&self) -> Option<RgbaImage> {
+        let (w, h) = (self.w_orig, self.h_orig);
+        self.tiles.iter().try_fold(
+            RgbaImage::new(w as u32, h as u32),
+            |mut buf, &(ref tile, point)| {
+                let start = |t| TILE_SIZE * t as usize;
+                let (sx, sy) = (start(point.x), start(point.y));
+                let end = |start, len| min(start + TILE_SIZE, len);
+                let buf_rect = RectRange::new(sx, sy, end(sx, w), end(sy, h))?;
+                copy_rect_conv(tile, &mut buf, tile_rect(), buf_rect, dot_to_rgba)?;
+                Some(buf)
+            },
+        )
+    }
+    fn bbox(&self) -> DotRect {
+        match self.mesh {
+            MeshTree::Leaf(ref leaf) => leaf.bbox,
+            MeshTree::Node(ref node) => node.bbox,
+        }
     }
 }
 
@@ -461,4 +645,24 @@ pub struct Sprite {
 pub trait Drawable {}
 
 #[cfg(test)]
-mod screen_test {}
+mod screen_test {
+    use super::*;
+    use testutils::load_img;
+    #[test]
+    fn load_test_1tile() {
+        let path = "../test-assets/chara1.png";
+        let img = load_img(path);
+        let frame = Frame::from_buf(&img).unwrap();
+        println!("{:?}", frame);
+    }
+    #[test]
+    fn load_test_4tile() {
+        let path = "../test-assets/chara2.png";
+        let img = load_img(path);
+        let frame = Frame::from_buf(&img).unwrap();
+        println!("{:?}", frame);
+        if let MeshTree::Node(n) = frame.mesh {
+            n.print_leaf();
+        }
+    }
+}
