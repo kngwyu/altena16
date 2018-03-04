@@ -199,37 +199,30 @@ impl MeshLeaf {
             return None;
         }
         let compensate = |v: &TileDir| v.to_vec() * other.scale;
-        // other.inner.iter().filter_map(|(ref child, dir)| {
-        //     let offset_o = offset_o + compensate(dir);
-        // });
-        for (child_o, dir) in &other.inner {
-            let offset_o = offset_o + compensate(dir);
-            match child_o {
-                MeshTree::Leaf(leaf) => {
-                    if !bbox_intersects(self.bbox, leaf.bbox, offset_s, offset_o) {
-                        continue;
+        other
+            .inner
+            .iter()
+            .filter_map(|(child, dir)| {
+                let offset_o = offset_o + compensate(dir);
+                match child {
+                    MeshTree::Leaf(leaf) => {
+                        if !bbox_intersects(self.bbox, leaf.bbox, offset_s, offset_o) {
+                            return None;
+                        }
+                        self.collide_l(leaf, offset_s, offset_o)
                     }
-                    let res = self.collide_l(leaf, offset_s, offset_o);
-                    if res.is_some() {
-                        return res;
-                    }
-                }
-                MeshTree::Node(node) => {
-                    if !bbox_intersects(self.bbox, node.bbox, offset_s, offset_o) {
-                        continue;
-                    }
-                    let res = self.collide_n(node, offset_s, offset_o);
-                    if res.is_some() {
-                        return res;
+                    MeshTree::Node(node) => {
+                        if !bbox_intersects(self.bbox, node.bbox, offset_s, offset_o) {
+                            return None;
+                        }
+                        self.collide_n(node, offset_s, offset_o)
                     }
                 }
-            }
-        }
-        None
+            })
+            .nth(0)
     }
     fn from_buf(buf: &RgbaImage, range: RectRange<u32>) -> Option<MeshLeaf> {
         const MAGIC: u16 = 1 << (TILE_SIZE - 1);
-        let mut exists = false;
         let (mut min_x, mut min_y, mut max_x, mut max_y) = (TILE_SIZE, TILE_SIZE, 0, 0);
         let mut upd_minmax = |x, y| {
             min_x = min(min_x, x);
@@ -242,23 +235,18 @@ impl MeshLeaf {
             |mut array, ((x, y), (buf_x, buf_y))| {
                 let p = buf.get_pixel(buf_x, buf_y);
                 if !is_trans(p) {
-                    exists = true;
                     upd_minmax(x, y);
                     array[y] |= MAGIC >> x;
                 }
                 array
             },
         );
-        if exists {
-            Some(MeshLeaf {
-                inner: inner,
-                bbox: RectRange::from_corners((min_x, min_y), (max_x + 1, max_y + 1))?
-                    .to_i16()?
-                    .to_rect(),
-            })
-        } else {
-            None
-        }
+        Some(MeshLeaf {
+            inner: inner,
+            bbox: RectRange::from_corners((min_x, min_y), (max_x + 1, max_y + 1))?
+                .to_i16()?
+                .to_rect(),
+        })
     }
     fn get_debug_buf(&self) -> Vec<Vec<u16>> {
         self.inner.iter().map(|&u| vec![u]).collect()
@@ -278,30 +266,26 @@ impl MeshNode {
             return None;
         }
         let compensate = |v: &TileDir| v.to_vec() * self.scale * TILE_SIZE as i16;
-        for (child_s, dir) in &self.inner {
-            let offset_s = offset_s + compensate(dir);
-            match child_s {
-                MeshTree::Leaf(leaf) => {
-                    if !bbox_intersects(leaf.bbox, other.bbox, offset_s, offset_o) {
-                        continue;
+        self.inner
+            .iter()
+            .filter_map(|(child_s, dir)| {
+                let offset_s = offset_s + compensate(dir);
+                match child_s {
+                    MeshTree::Leaf(leaf) => {
+                        if !bbox_intersects(leaf.bbox, other.bbox, offset_s, offset_o) {
+                            return None;
+                        }
+                        leaf.collide_n(other, offset_s, offset_o)
                     }
-                    let res = leaf.collide_n(other, offset_s, offset_o);
-                    if res.is_some() {
-                        return res;
-                    }
-                }
-                MeshTree::Node(node) => {
-                    if !bbox_intersects(node.bbox, other.bbox, offset_s, offset_o) {
-                        continue;
-                    }
-                    let res = node.collide(other, offset_s, offset_o);
-                    if res.is_some() {
-                        return res;
+                    MeshTree::Node(node) => {
+                        if !bbox_intersects(node.bbox, other.bbox, offset_s, offset_o) {
+                            return None;
+                        }
+                        node.collide(other, offset_s, offset_o)
                     }
                 }
-            }
-        }
-        None
+            })
+            .nth(0)
     }
     fn get_debug_buf(&self) -> Vec<Vec<u16>> {
         let uscale = self.scale as usize;
@@ -644,6 +628,13 @@ mod screen_test {
     #[test]
     fn load_test_1tile() {
         let path = "../test-assets/chara1.png";
+        let img = load_img(path);
+        let frame = Frame::from_buf(&img).unwrap();
+        println!("{:?}", frame);
+    }
+    #[test]
+    fn load_test_1pixel() {
+        let path = "../test-assets/bullet.png";
         let img = load_img(path);
         let frame = Frame::from_buf(&img).unwrap();
         println!("{:?}", frame);
