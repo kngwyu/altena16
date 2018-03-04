@@ -9,6 +9,7 @@ extern crate rect_iter;
 mod screen;
 mod world;
 mod errors;
+#[cfg(test)]
 mod testutils;
 
 /// Wrapper of SDL or HTML5 Canvas

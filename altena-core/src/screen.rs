@@ -1,10 +1,9 @@
 use ansi_term::Style;
 use ansi_term::Colour as TermRGB;
-use image::{ImageBuffer, Primitive, Rgba, RgbaImage};
+use image::{Primitive, Rgba, RgbaImage};
 use euclid::{rect, TypedPoint2D, TypedRect, TypedSize2D, TypedVector2D, point2, vec2};
-use num_traits::{FromPrimitive, Num, ToPrimitive};
-use rect_iter::{copy_rect, copy_rect_conv, gen_rect, gen_rect_conv, Get2D, GetMut2D, RectIter,
-                RectRange, ToPoint};
+use num_traits::{Num, ToPrimitive};
+use rect_iter::{copy_rect, copy_rect_conv, gen_rect_conv, Get2D, GetMut2D, RectRange, ToPoint};
 
 use std::collections::HashMap;
 use std::convert;
@@ -12,6 +11,7 @@ use std::ops::Range;
 use std::slice;
 use std::cmp::{max, min};
 use std::fmt;
+use std::u16;
 
 pub struct DotSpace;
 pub const DOT_HEIGHT: u16 = 240;
@@ -69,8 +69,9 @@ fn tile_rect() -> RectRange<usize> {
 }
 
 /// Calculate intersection of tile and DotRect and return range
-fn get_tile_range(rect: DotRect, tile_origin: DotPoint) -> Option<RectRange<i16>> {
-    let tile_rect = DotRect::new(tile_origin, tile_size());
+fn get_tile_range(rect: DotRect, offset: DotPoint) -> Option<RectRange<i16>> {
+    let tile_rect = DotRect::new(point2(0, 0), tile_size());
+    let rect = slide_rect(rect, offset.to_vector() * -1);
     let inter = tile_rect.intersection(&rect)?;
     Some(RectRange::from_rect(inter)?)
 }
@@ -170,18 +171,18 @@ impl MeshLeaf {
     ) -> Option<DotRect> {
         let line_mask = |range: &Range<i16>| {
             let len = range.end - range.start;
-            let mask = (1 << len) - 1;
+            let mask = u16::max_value() << (TILE_SIZE - len as usize);
             let shift = range.start;
-            move |b: u16| (b >> shift) & mask
+            move |b: u16| (b << shift) & mask
         };
         let intersect = bbox_intersection(self.bbox, other.bbox, offset_s, offset_o)?;
-        let tile_s = get_tile_range(intersect, offset_s)?;
-        let tile_o = get_tile_range(intersect, offset_o)?;
-        let mask_s = line_mask(tile_s.get_x());
-        let mask_o = line_mask(tile_o.get_x());
-        tile_s
+        let range_s = get_tile_range(intersect, offset_s)?;
+        let range_o = get_tile_range(intersect, offset_o)?;
+        let mask_s = line_mask(range_s.get_x());
+        let mask_o = line_mask(range_o.get_x());
+        range_s
             .cloned_y()
-            .zip(tile_o.cloned_y())
+            .zip(range_o.cloned_y())
             .find(|&(y_s, y_o)| {
                 let masked_s = mask_s(self.inner[y_s as usize]);
                 let masked_o = mask_o(other.inner[y_o as usize]);
@@ -198,7 +199,7 @@ impl MeshLeaf {
         if !bbox_intersects(self.bbox, other.bbox, offset_s, offset_o) {
             return None;
         }
-        let compensate = |v: &TileDir| v.to_vec() * other.scale;
+        let compensate = |v: &TileDir| v.to_vec() * other.scale * (TILE_SIZE / 2) as i16;
         other
             .inner
             .iter()
@@ -410,17 +411,6 @@ impl MeshTree {
     }
 }
 
-pub trait Collide {
-    /// LeftUp Corner of Object
-    fn origin(&self) -> DotPoint;
-    fn mesh(&self) -> &MeshTree;
-    fn collide(&self, other: &impl Collide) {
-        let origin_s = self.origin();
-        let origin_o = other.origin();
-        self.mesh().collide(other.mesh(), origin_s, origin_o);
-    }
-}
-
 /// altena don't support alpha blending, so just rgb is enough
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Color {
@@ -481,7 +471,7 @@ impl fmt::Debug for Tile {
         writeln!(f, "tile: {{")?;
         for i in 0..TILE_SIZE {
             for j in 0..TILE_SIZE {
-                let &dot = self.get_xy(j, i).unwrap();
+                let dot = self.get_xy(j, i).unwrap();
                 match dot {
                     Some(rgb) => write!(f, "{}", Style::new().on(rgb.to_term()).paint("  "))?,
                     None => write!(f, "  ")?,
@@ -552,7 +542,7 @@ impl fmt::Debug for Frame {
 }
 
 impl Frame {
-    fn from_buf(buf: &RgbaImage) -> Option<Frame> {
+    pub fn from_buf(buf: &RgbaImage) -> Option<Frame> {
         let (h, w) = (buf.height() as usize, buf.width() as usize);
         let tiles: Vec<_> = RectRange::zero_start(tile_num(w), tile_num(h))?
             .slide((1, 1))
@@ -577,6 +567,7 @@ impl Frame {
             h_orig: h,
         })
     }
+
     fn get_debug_buf(&self) -> Option<Vec<Vec<Dot>>> {
         let (w, h) = (self.w_orig, self.h_orig);
         self.tiles.iter().try_fold(
@@ -591,6 +582,7 @@ impl Frame {
             },
         )
     }
+
     fn get_img_buf(&self) -> Option<RgbaImage> {
         let (w, h) = (self.w_orig, self.h_orig);
         self.tiles.iter().try_fold(
@@ -605,6 +597,7 @@ impl Frame {
             },
         )
     }
+
     fn bbox(&self) -> DotRect {
         match self.mesh {
             MeshTree::Leaf(ref leaf) => leaf.bbox,
@@ -619,31 +612,66 @@ pub struct Sprite {
     frame_id_map: HashMap<String, usize>,
 }
 
+pub trait Collide {
+    /// LeftUp Corner of Object
+    fn origin(&self) -> DotPoint;
+    fn mesh(&self) -> &MeshTree;
+    fn collide(&self, other: &impl Collide) {
+        let origin_s = self.origin();
+        let origin_o = other.origin();
+        self.mesh().collide(other.mesh(), origin_s, origin_o);
+    }
+}
+
 pub trait Drawable {}
 
 #[cfg(test)]
 mod screen_test {
     use super::*;
-    use testutils::load_img;
+    use testutils::load_frame;
     #[test]
-    fn load_test_1tile() {
-        let path = "../test-assets/chara1.png";
-        let img = load_img(path);
-        let frame = Frame::from_buf(&img).unwrap();
+    fn load_1tile() {
+        let frame = load_frame("../test-assets/chara1.png");
         println!("{:?}", frame);
+        assert_eq!(rect(2, 2, 11, 14), frame.bbox());
     }
     #[test]
-    fn load_test_1pixel() {
-        let path = "../test-assets/bullet.png";
-        let img = load_img(path);
-        let frame = Frame::from_buf(&img).unwrap();
+    fn load_1pixel() {
+        let frame = load_frame("../test-assets/bullet.png");
         println!("{:?}", frame);
+        assert_eq!(rect(7, 8, 1, 1), frame.bbox());
     }
     #[test]
-    fn load_test_4tile() {
-        let path = "../test-assets/chara2.png";
-        let img = load_img(path);
-        let frame = Frame::from_buf(&img).unwrap();
+    fn load_4tile() {
+        let frame = load_frame("../test-assets/chara2.png");
         println!("{:?}", frame);
+        assert_eq!(rect(1, 2, 30, 30), frame.bbox());
+    }
+    #[test]
+    fn collide_l_1() {
+        let bullet = load_frame("../test-assets/bullet.png");
+        let chara1 = load_frame("../test-assets/chara1.png");
+        let c = chara1
+            .mesh
+            .collide(&bullet.mesh, point2(0, 0), point2(0, 0));
+        assert_eq!(c, Some(rect(7, 8, 1, 1)))
+    }
+    #[test]
+    fn collide_l_2() {
+        let bullet = load_frame("../test-assets/bullet.png");
+        let chara1 = load_frame("../test-assets/chara1.png");
+        let c = chara1
+            .mesh
+            .collide(&bullet.mesh, point2(16, 16), point2(12, 11));
+        assert_eq!(c, Some(rect(19, 19, 1, 1)));
+    }
+    #[test]
+    fn collide_n_1() {
+        let chara1 = load_frame("../test-assets/chara1.png");
+        let chara2 = load_frame("../test-assets/chara2.png");
+        let c = chara2
+            .mesh
+            .collide(&chara1.mesh, point2(0, 0), point2(19, 16));
+        assert_eq!(c, Some(rect(21, 18, 10, 14)));
     }
 }
