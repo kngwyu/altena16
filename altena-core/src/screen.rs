@@ -198,8 +198,11 @@ impl MeshLeaf {
         if !bbox_intersects(self.bbox, other.bbox, offset_s, offset_o) {
             return None;
         }
-        let compensate = |v: TileDir| v.to_vec() * other.scale;
-        for &(ref child_o, dir) in &other.inner {
+        let compensate = |v: &TileDir| v.to_vec() * other.scale;
+        // other.inner.iter().filter_map(|(ref child, dir)| {
+        //     let offset_o = offset_o + compensate(dir);
+        // });
+        for (child_o, dir) in &other.inner {
             let offset_o = offset_o + compensate(dir);
             match child_o {
                 MeshTree::Leaf(leaf) => {
@@ -274,8 +277,8 @@ impl MeshNode {
         if !bbox_intersects(self.bbox, other.bbox, offset_s, offset_o) {
             return None;
         }
-        let compensate = |v: TileDir| v.to_vec() * self.scale * TILE_SIZE as i16;
-        for &(ref child_s, dir) in &self.inner {
+        let compensate = |v: &TileDir| v.to_vec() * self.scale * TILE_SIZE as i16;
+        for (child_s, dir) in &self.inner {
             let offset_s = offset_s + compensate(dir);
             match child_s {
                 MeshTree::Leaf(leaf) => {
@@ -305,10 +308,10 @@ impl MeshNode {
         let child_scale = uscale / 2;
         self.inner.iter().fold(
             vec![vec![0u16; uscale]; TILE_SIZE * uscale],
-            |mut vec, &(ref child, dir)| {
-                let child_buf = match *child {
-                    MeshTree::Leaf(ref leaf) => leaf.get_debug_buf(),
-                    MeshTree::Node(ref node) => node.get_debug_buf(),
+            |mut vec, (child, dir)| {
+                let child_buf = match child {
+                    MeshTree::Leaf(leaf) => leaf.get_debug_buf(),
+                    MeshTree::Node(node) => node.get_debug_buf(),
                 };
                 let res_range = RectRange::zero_start(1, TILE_SIZE)
                     .unwrap()
@@ -325,7 +328,7 @@ impl MeshNode {
     }
     #[allow(dead_code)]
     fn print_leaf(&self) {
-        for &(ref child_s, dir) in &self.inner {
+        for (child_s, dir) in &self.inner {
             match child_s {
                 MeshTree::Leaf(leaf) => println!("dir: {:?}, leaf: {:?}", dir, leaf),
                 MeshTree::Node(node) => node.print_leaf(),
@@ -594,7 +597,7 @@ impl Frame {
         let (w, h) = (self.w_orig, self.h_orig);
         self.tiles.iter().try_fold(
             vec![vec![Dot::default(); w]; h],
-            |mut buf, &(ref tile, point)| {
+            |mut buf, (tile, point)| {
                 let start = |t| TILE_SIZE * t as usize;
                 let (sx, sy) = (start(point.x), start(point.y));
                 let end = |start, len| min(start + TILE_SIZE, len);
@@ -608,7 +611,7 @@ impl Frame {
         let (w, h) = (self.w_orig, self.h_orig);
         self.tiles.iter().try_fold(
             RgbaImage::new(w as u32, h as u32),
-            |mut buf, &(ref tile, point)| {
+            |mut buf, (tile, point)| {
                 let start = |t| TILE_SIZE * t as usize;
                 let (sx, sy) = (start(point.x), start(point.y));
                 let end = |start, len| min(start + TILE_SIZE, len);
