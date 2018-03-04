@@ -179,14 +179,15 @@ impl MeshLeaf {
         let tile_o = get_tile_range(intersect, offset_o)?;
         let mask_s = line_mask(tile_s.get_x());
         let mask_o = line_mask(tile_o.get_x());
-        for (y_s, y_o) in tile_s.cloned_y().zip(tile_o.cloned_y()) {
-            let masked_s = mask_s(self.inner[y_s as usize]);
-            let masked_o = mask_o(other.inner[y_o as usize]);
-            if (masked_s & masked_o) != 0 {
-                return Some(intersect);
-            }
-        }
-        None
+        tile_s
+            .cloned_y()
+            .zip(tile_o.cloned_y())
+            .find(|&(y_s, y_o)| {
+                let masked_s = mask_s(self.inner[y_s as usize]);
+                let masked_o = mask_o(other.inner[y_o as usize]);
+                (masked_s & masked_o) != 0
+            })
+            .map(|_| intersect)
     }
     fn collide_n(
         &self,
