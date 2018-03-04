@@ -1,7 +1,5 @@
-#![feature(conservative_impl_trait, universal_impl_trait)]
-#![feature(iterator_try_fold)]
-#![feature(dyn_trait)]
-#![feature(fnbox)]
+#![feature(conservative_impl_trait, dyn_trait, iterator_try_fold, match_default_bindings, nll,
+           universal_impl_trait)]
 
 extern crate ansi_term;
 extern crate euclid;

@@ -68,12 +68,6 @@ fn tile_rect() -> RectRange<usize> {
     RectRange::new(0, 0, TILE_SIZE, TILE_SIZE).unwrap()
 }
 
-fn tile_iter() -> RectIter<usize> {
-    RectRange::new(0, 0, TILE_SIZE, TILE_SIZE)
-        .unwrap()
-        .into_iter()
-}
-
 /// Calculate intersection of tile and DotRect and return range
 fn get_tile_range(rect: DotRect, tile_origin: DotPoint) -> Option<RectRange<i16>> {
     let tile_rect = DotRect::new(tile_origin, tile_size());
@@ -120,7 +114,7 @@ impl TileDir {
     pub fn to_vec<T: From<u8>, U>(&self) -> TypedVector2D<T, U> {
         use self::TileDir::*;
         let ret = |x, y| vec2(T::from(x), T::from(y));
-        match *self {
+        match self {
             LeftUp => ret(0, 0),
             RightUp => ret(1, 0),
             RightDown => ret(1, 1),
@@ -129,7 +123,7 @@ impl TileDir {
     }
     pub fn x<T: From<u8>>(&self) -> T {
         use self::TileDir::*;
-        match *self {
+        match self {
             LeftUp => T::from(0u8),
             RightUp => T::from(1u8),
             RightDown => T::from(1u8),
@@ -138,7 +132,7 @@ impl TileDir {
     }
     pub fn y<T: From<u8>>(&self) -> T {
         use self::TileDir::*;
-        match *self {
+        match self {
             LeftUp => T::from(0u8),
             RightUp => T::from(0u8),
             RightDown => T::from(1u8),
@@ -206,8 +200,8 @@ impl MeshLeaf {
         let compensate = |v: TileDir| v.to_vec() * other.scale;
         for &(ref child_o, dir) in &other.inner {
             let offset_o = offset_o + compensate(dir);
-            match *child_o {
-                MeshTree::Leaf(ref leaf) => {
+            match child_o {
+                MeshTree::Leaf(leaf) => {
                     if !bbox_intersects(self.bbox, leaf.bbox, offset_s, offset_o) {
                         continue;
                     }
@@ -216,7 +210,7 @@ impl MeshLeaf {
                         return res;
                     }
                 }
-                MeshTree::Node(ref node) => {
+                MeshTree::Node(node) => {
                     if !bbox_intersects(self.bbox, node.bbox, offset_s, offset_o) {
                         continue;
                     }
@@ -230,28 +224,27 @@ impl MeshLeaf {
         None
     }
     fn from_buf(buf: &RgbaImage, range: RectRange<u32>) -> Option<MeshLeaf> {
-        const MAGIC: u16 = 1 << 15;
+        const MAGIC: u16 = 1 << (TILE_SIZE - 1);
         let mut exists = false;
         let (mut min_x, mut min_y, mut max_x, mut max_y) = (TILE_SIZE, TILE_SIZE, 0, 0);
-        let inner = {
-            let mut upd_minmax = |x, y| {
-                min_x = min(min_x, x);
-                min_y = min(min_y, y);
-                max_x = max(max_x, x);
-                max_y = max(max_y, y);
-            };
-            tile_iter()
-                .zip(range)
-                .fold([0u16; TILE_SIZE], |mut array, ((x, y), (buf_x, buf_y))| {
-                    let p = buf.get_pixel(buf_x, buf_y);
-                    if !is_trans(p) {
-                        exists = true;
-                        upd_minmax(x, y);
-                        array[y] |= MAGIC >> x;
-                    }
-                    array
-                })
+        let mut upd_minmax = |x, y| {
+            min_x = min(min_x, x);
+            min_y = min(min_y, y);
+            max_x = max(max_x, x);
+            max_y = max(max_y, y);
         };
+        let inner = tile_rect().into_iter().zip(range).fold(
+            [0u16; TILE_SIZE],
+            |mut array, ((x, y), (buf_x, buf_y))| {
+                let p = buf.get_pixel(buf_x, buf_y);
+                if !is_trans(p) {
+                    exists = true;
+                    upd_minmax(x, y);
+                    array[y] |= MAGIC >> x;
+                }
+                array
+            },
+        );
         if exists {
             Some(MeshLeaf {
                 inner: inner,
@@ -283,8 +276,8 @@ impl MeshNode {
         let compensate = |v: TileDir| v.to_vec() * self.scale * TILE_SIZE as i16;
         for &(ref child_s, dir) in &self.inner {
             let offset_s = offset_s + compensate(dir);
-            match *child_s {
-                MeshTree::Leaf(ref leaf) => {
+            match child_s {
+                MeshTree::Leaf(leaf) => {
                     if !bbox_intersects(leaf.bbox, other.bbox, offset_s, offset_o) {
                         continue;
                     }
@@ -293,7 +286,7 @@ impl MeshNode {
                         return res;
                     }
                 }
-                MeshTree::Node(ref node) => {
+                MeshTree::Node(node) => {
                     if !bbox_intersects(node.bbox, other.bbox, offset_s, offset_o) {
                         continue;
                     }
@@ -332,9 +325,9 @@ impl MeshNode {
     #[allow(dead_code)]
     fn print_leaf(&self) {
         for &(ref child_s, dir) in &self.inner {
-            match *child_s {
-                MeshTree::Leaf(ref leaf) => println!("dir: {:?}, leaf: {:?}", dir, leaf),
-                MeshTree::Node(ref node) => node.print_leaf(),
+            match child_s {
+                MeshTree::Leaf(leaf) => println!("dir: {:?}, leaf: {:?}", dir, leaf),
+                MeshTree::Node(node) => node.print_leaf(),
             }
         }
     }
@@ -364,14 +357,14 @@ pub enum MeshTree {
 impl MeshTree {
     /// Detect Collision
     fn collide(&self, other: &MeshTree, offset_s: DotPoint, offset_o: DotPoint) -> Option<DotRect> {
-        match *self {
-            MeshTree::Leaf(ref leaf_s) => match *other {
-                MeshTree::Leaf(ref leaf_o) => leaf_s.collide_l(leaf_o, offset_s, offset_o),
-                MeshTree::Node(ref node_o) => leaf_s.collide_n(node_o, offset_s, offset_o),
+        match self {
+            MeshTree::Leaf(leaf_s) => match other {
+                MeshTree::Leaf(leaf_o) => leaf_s.collide_l(leaf_o, offset_s, offset_o),
+                MeshTree::Node(node_o) => leaf_s.collide_n(node_o, offset_s, offset_o),
             },
-            MeshTree::Node(ref node_s) => match *other {
-                MeshTree::Leaf(ref leaf_o) => leaf_o.collide_n(node_s, offset_o, offset_s),
-                MeshTree::Node(ref node_o) => node_s.collide(node_o, offset_s, offset_o),
+            MeshTree::Node(node_s) => match other {
+                MeshTree::Leaf(leaf_o) => leaf_o.collide_n(node_s, offset_o, offset_s),
+                MeshTree::Node(node_o) => node_s.collide(node_o, offset_s, offset_o),
             },
         }
     }
@@ -401,13 +394,9 @@ impl MeshTree {
                 let right_down = left_up + vec2(1, 1) * child_scale * TILE_SIZE as u32;
                 let divided = RectRange::from_corners(left_up, right_down).unwrap();
                 let inter = range_orig.intersection(&divided)?;
-                println!("dir: {:?}, divided: {:?}, inter: {:?}", dir, divided, inter);
                 let res = MeshTree::from_buf_(buf, inter)?;
                 let bbox = match res {
-                    MeshTree::Leaf(ref leaf) => {
-                        println!("{:?}", leaf);
-                        leaf.bbox
-                    }
+                    MeshTree::Leaf(ref leaf) => leaf.bbox,
                     MeshTree::Node(ref node) => node.bbox,
                 };
                 let bbox = slide_rect(bbox, (left_up.x as i16, left_up.y as i16));
@@ -661,8 +650,5 @@ mod screen_test {
         let img = load_img(path);
         let frame = Frame::from_buf(&img).unwrap();
         println!("{:?}", frame);
-        if let MeshTree::Node(n) = frame.mesh {
-            n.print_leaf();
-        }
     }
 }
