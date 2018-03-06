@@ -1,6 +1,6 @@
 use euclid;
 pub struct PhysicalSpace;
-pub type Float = f32;
+pub type Float = f64;
 pub type Point = euclid::TypedPoint2D<Float, PhysicalSpace>;
 pub type Vector = euclid::TypedVector2D<Float, PhysicalSpace>;
 pub type Angle = euclid::Angle<Float>;
@@ -10,8 +10,6 @@ pub fn angle_to_vector(a: Angle) -> Vector {
     Vector::new(c, s)
 }
 
-// FIXME: sholdn't use constant
-const TICK: Float = 0.001;
 /// Moving Object
 pub trait Move {
     fn point(&self) -> Point;
@@ -19,19 +17,27 @@ pub trait Move {
     fn velocity(&self) -> Vector;
 }
 /// 2nd order Runge Kutta
-pub fn simulate_rk2(obj: &impl Move, force: impl Fn(Vector) -> Vector) -> (Point, Vector) {
+pub fn simulate_rk2(
+    obj: &impl Move,
+    force: impl Fn(Vector) -> Vector,
+    dt: Float,
+) -> (Point, Vector) {
     let cur_p = obj.point();
     let cur_v = obj.velocity();
-    let half_v = cur_v + force(cur_v) * 0.5 * TICK;
-    let nxt_p = cur_p + half_v * TICK;
-    let nxt_v = cur_v + force(half_v) * TICK;
+    let half_v = cur_v + force(cur_v) * 0.5 * dt;
+    let nxt_p = cur_p + half_v * dt;
+    let nxt_v = cur_v + force(half_v) * dt;
     (nxt_p, nxt_v)
 }
 /// euler
-pub fn simulate_euler(obj: &impl Move, force: impl Fn(Vector) -> Vector) -> (Point, Vector) {
+pub fn simulate_euler(
+    obj: &impl Move,
+    force: impl Fn(Vector) -> Vector,
+    dt: Float,
+) -> (Point, Vector) {
     let cur_p = obj.point();
     let cur_v = obj.velocity();
-    (cur_p + cur_v * TICK, cur_v + force(cur_v) * TICK)
+    (cur_p + cur_v * dt, cur_v + force(cur_v) * dt)
 }
 
 #[cfg(test)]

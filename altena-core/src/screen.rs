@@ -628,7 +628,7 @@ pub trait Drawable {}
 #[cfg(test)]
 mod screen_test {
     use super::*;
-    use testutils::load_frame;
+    use testutils::{load_frame, load_img};
     #[test]
     fn load_1tile() {
         let frame = load_frame("../test-assets/chara1.png");
@@ -673,5 +673,21 @@ mod screen_test {
             .mesh
             .collide(&chara1.mesh, point2(0, 0), point2(19, 16));
         assert_eq!(c, Some(rect(21, 18, 10, 14)));
+    }
+    #[test]
+    fn frame_to_img_buf() {
+        let img = load_img("../test-assets/chara2.png");
+        let chara2 = load_frame("../test-assets/chara2.png");
+        let chara_img = chara2.get_img_buf().unwrap();
+        let range = RectRange::zero_start(img.width(), img.height()).unwrap();
+        assert!(range.into_iter().all(|p| {
+            let orig = *img.get_point(p).unwrap();
+            let converted = *chara_img.get_point(p).unwrap();
+            if is_trans(&orig) {
+                is_trans(&converted)
+            } else {
+                orig == converted
+            }
+        }));
     }
 }
