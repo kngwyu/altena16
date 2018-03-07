@@ -1,0 +1,8 @@
+[profile.dev]
+codegen-units = 4
+
+[profile.release]
+lto = true
+
+[workspace]
+members = ["altena-core", "altena-web", "altena-devui"]
