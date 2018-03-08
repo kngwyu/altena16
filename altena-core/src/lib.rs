@@ -13,7 +13,7 @@ extern crate piston;
 extern crate rect_iter;
 extern crate sdl2_window;
 
-mod errors;
+mod input;
 mod screen;
 mod world;
 mod mode;
@@ -24,54 +24,116 @@ use opengl_graphics::{Filter, GlGraphics, OpenGL, Texture, TextureSettings};
 use sdl2_window::Sdl2Window;
 use piston::window::WindowSettings;
 use piston::event_loop::{EventLoop, EventSettings, Events};
-use piston::input::{Event, RenderArgs, RenderEvent};
+use piston::input::{Event, Input, Loop};
 use std::rc::Rc;
 use std::cell::{Cell, RefCell};
 use std::option::Option;
 use std::collections::HashMap;
 
 use mode::{GameMode, ModeMessage};
+use screen::{DOT_HEIGHT, DOT_WIDTH};
+use input::InputHandler;
 
-/// Game Data
+/// clock counter type
+/// currently we use Update event as a counter, but it may be changed in the future
+pub type Clock = u32;
+
+/// Time span type
+/// We use our own type instead of Range, to get 'Copy'
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Span {
+    pub start: Clock,
+    pub end: Clock,
+}
+
+impl Span {
+    fn new(s: Clock, e: Clock) -> Span {
+        Span { start: s, end: e }
+    }
+}
+
+/// All game data in altena16
 pub struct AltenaCore {
+    /// OpenGL context
     gl: GlGraphics,
-    states: HashMap<String, Box<dyn GameMode>>,
-    current_state: String,
+    apps: Vec<Box<dyn GameMode>>,
+    current_app: usize,
+    /// OpenGL Texture
+    /// We use only .update method to draw on screen
     texture: Cell<Texture>,
+    /// game ended or not
     pub end: bool,
+    /// REAL_SCREEN_SIZE / DOT_SCREEN_SIZE
+    x_scale: f64,
+    y_scale: f64,
+    /// it pottentialy cause overflow, but not reallistic(40 days after)
+    upd_count: Clock,
+    input_handle: InputHandler,
 }
 
 impl AltenaCore {
+    fn get_scale(w: u32, h: u32) -> (f64, f64) {
+        let scale = |d, s| f64::from(s) / f64::from(d);
+        (scale(DOT_WIDTH, w), scale(DOT_HEIGHT, h))
+    }
+
     fn from_setting(setting: AltenaSetting) -> AltenaCore {
         let texture_setting = TextureSettings::new().filter(Filter::Nearest);
         let texture = Texture::empty(&texture_setting).expect("couldn't make OpenGL texture");
+        let (sw, sh) = Self::get_scale(setting.width, setting.height);
         AltenaCore {
             gl: GlGraphics::new(setting.opengl),
-            states: HashMap::new(),
-            current_state: "".to_owned(),
+            apps: Vec::new(),
+            current_app: 0,
             texture: Cell::new(texture),
             end: false,
+            x_scale: sw,
+            y_scale: sh,
+            upd_count: 0,
+            input_handle: InputHandler::default(),
         }
     }
-    fn handle_events(&mut self, e: Event) {
-        let mut state = match self.states.get_mut(&self.current_state) {
-            Some(s) => s,
-            None => {
-                warn!("no state named {}", self.current_state);
-                return;
+    fn handle_events(&mut self, event: Event) {
+        match event {
+            Event::Input(input) => {
+                if let Input::Resize(w, h) = input {
+                    let (x, y) = Self::get_scale(w, h);
+                    self.x_scale = x;
+                    self.y_scale = y;
+                } else {
+                    self.input_handle.handle(input, self.upd_count);
+                }
             }
-        };
-        if let Some(args) = e.render_args() {
-            let buf = state.get_buf();
-            let mut t = self.texture.get_mut();
-            t.update(&buf);
-            // TODO: custom transform matrix support
-            self.gl.draw(args.viewport(), |ctx, gl| {
-                use graphics::*;
-                clear([1.0; 4], gl);
-                let trans = ctx.transform.scale(2.0, 2.0);
-                graphics::image(t, trans, gl);
-            });
+            Event::Loop(loop_event) => {
+                let mut app = match self.apps.get_mut(self.current_app) {
+                    Some(s) => s,
+                    None => {
+                        warn!("no app named {}", self.current_app);
+                        return;
+                    }
+                };
+                match loop_event {
+                    Loop::Render(args) => {
+                        let buf = app.get_buf();
+                        let mut t = self.texture.get_mut();
+                        t.update(&buf);
+                        // TODO: custom transform matrix support
+                        let (xs, ys) = (self.x_scale, self.y_scale);
+                        self.gl.draw(args.viewport(), |ctx, gl| {
+                            use graphics::*;
+                            // TODO: custom clear color support
+                            clear([1.0; 4], gl);
+                            let trans = ctx.transform.scale(xs, ys);
+                            image(t, trans, gl);
+                        });
+                    }
+                    Loop::Update(args) => {
+                        self.upd_count += 1;
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -83,18 +145,22 @@ pub struct AltenaSetting {
     max_fps: u64,
     ups: u64,
     opengl: OpenGL,
+    resizable: bool,
 }
 
 impl AltenaSetting {
     const DEFAULT_MAX_FPS: u64 = 30;
-    const DEFAULT_UPS: u64 = 50;
-    pub fn new(width: u32, height: u32) -> AltenaSetting {
+    const DEFAULT_UPS: u64 = 60;
+    const DEFAULT_WIDTH: u32 = 640;
+    const DEFAULT_HEIGHT: u32 = 480;
+    pub fn new() -> AltenaSetting {
         AltenaSetting {
-            width: width,
-            height: height,
+            width: Self::DEFAULT_WIDTH,
+            height: Self::DEFAULT_HEIGHT,
             max_fps: Self::DEFAULT_MAX_FPS,
             ups: Self::DEFAULT_UPS,
             opengl: OpenGL::V2_1,
+            resizable: false,
         }
     }
     pub fn width(&mut self, width: u32) -> &mut AltenaSetting {
@@ -117,15 +183,34 @@ impl AltenaSetting {
         self.opengl = gl;
         self
     }
+    pub fn resizable(&mut self, b: bool) -> &mut AltenaSetting {
+        self.resizable = b;
+        self
+    }
 }
 
+/// This function defines altena's main loop.
+///
+/// # Example
+/// ```no_run
+/// fn main() {
+///     let setting = AltenaSetting::new();
+///     let (main_loop, altena) = altena_core::main_loop(setting);
+///     let mut end = false;
+///     while !end {
+///         main_loop();
+///         end = altena.borrow().end;
+///     }
+/// }
+/// ```
 pub fn main_loop(setting: AltenaSetting) -> (impl FnMut(), Rc<RefCell<AltenaCore>>) {
     let opengl = setting.opengl;
     let mut window: Sdl2Window = WindowSettings::new("SDL Window", (setting.width, setting.height))
         .opengl(opengl)
-        .exit_on_esc(true)
+        .exit_on_esc(true) // it's useful for debug
         .srgb(false)
         .vsync(true)
+        .resizable(setting.resizable)
         .build()
         .expect("Failed to build window!");
     let event_setting = EventSettings::new()
