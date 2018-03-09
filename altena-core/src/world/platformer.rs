@@ -1,4 +1,4 @@
-use screen::{DotPoint, DotRect, DotSize, Tile, DOT_HEIGHT, DOT_WIDTH};
+use frame::{DotPoint, DotRect, DotSize, Tile, DOT_HEIGHT, DOT_WIDTH};
 
 /// Object and Map manager
 /// We use DotScale as unit scale in PlatformerWorld

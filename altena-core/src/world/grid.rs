@@ -1,4 +1,4 @@
-use screen::{DotPoint, DotRect, DotSize, DotSpace, Tile, DOT_HEIGHT, DOT_WIDTH};
+use frame::{DotPoint, DotRect, DotSize, DotSpace, Tile, DOT_HEIGHT, DOT_WIDTH};
 use euclid;
 pub struct GridSpace;
 type GridPoint = euclid::TypedPoint2D<u16, GridSpace>;

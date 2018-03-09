@@ -11,10 +11,11 @@ extern crate num_traits;
 extern crate opengl_graphics;
 extern crate piston;
 extern crate rect_iter;
+extern crate rlua;
 extern crate sdl2_window;
 
 mod input;
-mod screen;
+mod frame;
 mod world;
 mod mode;
 #[cfg(test)]
@@ -31,7 +32,7 @@ use std::option::Option;
 use std::collections::HashMap;
 
 use mode::{GameMode, ModeMessage};
-use screen::{DOT_HEIGHT, DOT_WIDTH};
+use frame::{DOT_HEIGHT, DOT_WIDTH};
 use input::InputHandler;
 
 /// clock counter type
@@ -192,7 +193,7 @@ impl AltenaSetting {
 /// This function defines altena's main loop.
 ///
 /// # Example
-/// ```no_run
+/// ```ignore
 /// fn main() {
 ///     let setting = AltenaSetting::new();
 ///     let (main_loop, altena) = altena_core::main_loop(setting);

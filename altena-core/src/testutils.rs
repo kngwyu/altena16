@@ -1,6 +1,6 @@
 use image::{open, DynamicImage, RgbaImage};
 use std::path::Path;
-use screen::Frame;
+use frame::Frame;
 
 pub(crate) fn load_img(file_name: &str) -> RgbaImage {
     let p = Path::new(file_name);

@@ -552,8 +552,9 @@ impl Frame {
                 let (sx, sy) = (start(tile_x), start(tile_y));
                 let end = |start, len| min(start + TILE_SIZE, len);
                 let buf_rect = RectRange::new(sx, sy, end(sx, w), end(sy, h)).unwrap();
-                let tile = gen_rect_conv(buf, buf_rect, tile_rect(), Color::from_rgba)
-                    .expect("Index bug in Frame::frame_buf!!!");
+                let tile =
+                    gen_rect_conv(buf, Tile::default, buf_rect, tile_rect(), Color::from_rgba)
+                        .expect("Index bug in Frame::frame_buf!!!");
                 let tile_p = point2(tile_x as u8 - 1, tile_y as u8 - 1);
                 (tile, tile_p)
             })
@@ -623,7 +624,9 @@ pub trait Collide {
     }
 }
 
-pub trait Drawable {}
+pub trait Drawable {
+    fn draw(&self, &mut RgbaImage);
+}
 
 #[cfg(test)]
 mod screen_test {
