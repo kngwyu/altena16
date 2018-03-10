@@ -6,7 +6,6 @@ use euclid::{rect, TypedPoint2D, TypedRect, TypedSize2D, TypedVector2D, point2, 
 use num_traits::{Num, ToPrimitive};
 use rect_iter::{copy_rect, copy_rect_conv, gen_rect_conv, Get2D, GetMut2D, RectRange, ToPoint};
 
-use std::collections::HashMap;
 use std::convert;
 use std::ops::Range;
 use std::slice;
@@ -149,7 +148,7 @@ impl TileDir {
 #[derive(Copy, Clone)]
 pub struct MeshLeaf {
     /// Object Mesh scaled to tile size.
-    inner: [u16; TILE_SIZE],
+    inner: [u64; TILE_SIZE],
     /// Bounding Box of meshed object.
     /// Its origin is based on upper left corner of tile.
     bbox: DotRect,
@@ -159,7 +158,7 @@ impl fmt::Debug for MeshLeaf {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "mesh: {{")?;
         for i in 0..TILE_SIZE {
-            writeln!(f, "{:016b}", self.inner[i])?;
+            writeln!(f, "{:064b}", self.inner[i])?;
         }
         writeln!(f, "}}, bbox: {:?}", self.bbox)
     }
@@ -173,10 +172,10 @@ impl MeshLeaf {
         offset_o: DotPoint,
     ) -> Option<DotRect> {
         let line_mask = |range: &Range<i16>| {
-            let len = range.end - range.start;
-            let mask = u16::max_value() << (TILE_SIZE - len as usize);
-            let shift = range.start;
-            move |b: u16| (b << shift) & mask
+            let len = (range.end - range.start) as usize;
+            let mask = u64::max_value() << ((TILE_SIZE - len) * 4);
+            let shift = range.start * 4;
+            move |b: u64| (b << shift) & mask
         };
         let intersect = bbox_intersection(self.bbox, other.bbox, offset_s, offset_o)?;
         let range_s = get_tile_range(intersect, offset_s)?;
@@ -226,7 +225,6 @@ impl MeshLeaf {
             .nth(0)
     }
     fn from_buf(buf: &RgbaImage, range: RectRange<u32>) -> Option<MeshLeaf> {
-        const MAGIC: u16 = 1 << (TILE_SIZE - 1);
         let (mut min_x, mut min_y, mut max_x, mut max_y) = (TILE_SIZE, TILE_SIZE, 0, 0);
         let mut upd_minmax = |x, y| {
             min_x = min(min_x, x);
@@ -235,12 +233,14 @@ impl MeshLeaf {
             max_y = max(max_y, y);
         };
         let inner = tile_rect().into_iter().zip(range).fold(
-            [0u16; TILE_SIZE],
+            [0u64; TILE_SIZE],
             |mut array, ((x, y), (buf_x, buf_y))| {
                 let p = buf.get_pixel(buf_x, buf_y);
-                if !is_trans(p) {
+                let collision_bits = get_collision_bits(p);
+                if collision_bits != 0 {
                     upd_minmax(x, y);
-                    array[y] |= MAGIC >> x;
+                    let shift = (TILE_SIZE - x - 1) * 4;
+                    array[y] |= u64::from(collision_bits) << shift;
                 }
                 array
             },
@@ -252,7 +252,7 @@ impl MeshLeaf {
                 .to_rect(),
         })
     }
-    fn get_debug_buf(&self) -> Vec<Vec<u16>> {
+    fn get_debug_buf(&self) -> Vec<Vec<u64>> {
         self.inner.iter().map(|&u| vec![u]).collect()
     }
 }
@@ -291,11 +291,11 @@ impl MeshNode {
             })
             .nth(0)
     }
-    fn get_debug_buf(&self) -> Vec<Vec<u16>> {
+    fn get_debug_buf(&self) -> Vec<Vec<u64>> {
         let uscale = self.scale as usize;
         let child_scale = uscale / 2;
         self.inner.iter().fold(
-            vec![vec![0u16; uscale]; TILE_SIZE * uscale],
+            vec![vec![0u64; uscale]; TILE_SIZE * uscale],
             |mut vec, (child, dir)| {
                 let child_buf = match child {
                     MeshTree::Leaf(leaf) => leaf.get_debug_buf(),
@@ -331,7 +331,7 @@ impl fmt::Debug for MeshNode {
         let buf = self.get_debug_buf();
         for i in 0..buf.len() {
             for j in 0..buf[i].len() {
-                write!(f, "{:016b}", buf[i][j])?;
+                write!(f, "{:064b}", buf[i][j])?;
             }
             writeln!(f, "")?;
         }
@@ -448,8 +448,27 @@ impl Color {
     }
 }
 
+/// altena16 doesn't do alpha blending, and Alpha Value has special meaning
+/// 0b1
+/// the first digit represents the pixel is transparent or not!
+///    000
+/// next 3 digits have no meaning
+///       1011
+/// the last 4 digits are used to customize collison attribute
 fn is_trans<T: Primitive>(rgba: &Rgba<T>) -> bool {
-    rgba[3] == T::zero()
+    let alpha = match rgba[3].to_u8() {
+        Some(a) => a,
+        None => return true,
+    };
+    (alpha & 1) == 0
+}
+
+fn get_collision_bits<T: Primitive>(rgba: &Rgba<T>) -> u8 {
+    let alpha = match rgba[3].to_u8() {
+        Some(a) => a,
+        None => return 0,
+    };
+    alpha & 0b00001111
 }
 
 pub type Dot = Option<Color>;
