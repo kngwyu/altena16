@@ -1,3 +1,4 @@
+//! tile, frame, collision detection
 use ansi_term::Style;
 use ansi_term::Colour as TermRGB;
 use image::{Primitive, Rgba, RgbaImage};
@@ -13,15 +14,17 @@ use std::cmp::{max, min};
 use std::fmt;
 use std::u16;
 
-pub struct DotSpace;
-pub const DOT_HEIGHT: u16 = 240;
-pub const DOT_WIDTH: u16 = 320;
-
-pub type DotPoint = TypedPoint2D<i16, DotSpace>;
-pub type DotSize = TypedSize2D<i16, DotSpace>;
-pub type DotRect = TypedRect<i16, DotSpace>;
-pub type DotVector = TypedVector2D<i16, DotSpace>;
-
+pub mod dottypes {
+    use super::*;
+    pub struct DotSpace;
+    pub const DOT_HEIGHT: u16 = 240;
+    pub const DOT_WIDTH: u16 = 320;
+    pub type DotPoint = TypedPoint2D<i16, DotSpace>;
+    pub type DotSize = TypedSize2D<i16, DotSpace>;
+    pub type DotRect = TypedRect<i16, DotSpace>;
+    pub type DotVector = TypedVector2D<i16, DotSpace>;
+}
+use self::dottypes::*;
 trait ToDotVec {
     fn to_dot_vec(&self) -> DotVector;
 }
@@ -512,18 +515,23 @@ impl GetMut2D for Tile {
         Some(&mut self.inner[y * TILE_SIZE + x])
     }
 }
+
 /// 1 Frame of sprite
 pub struct Frame {
+    // TODO: is it really useful?
+    name: String,
     /// for drawing
     tiles: Vec<(Tile, TilePoint)>,
     /// for collision
     mesh: MeshTree,
+    /// for
     w_orig: usize,
     h_orig: usize,
 }
 
 impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Frame name: {}", self.name)?;
         writeln!(f, "tiles: {{")?;
         let buf = self.get_debug_buf().unwrap();
         for i in 0..buf.len() {
@@ -542,7 +550,7 @@ impl fmt::Debug for Frame {
 }
 
 impl Frame {
-    pub fn from_buf(buf: &RgbaImage) -> Option<Frame> {
+    pub fn from_buf(buf: &RgbaImage, name: &str) -> Option<Frame> {
         let (h, w) = (buf.height() as usize, buf.width() as usize);
         let tiles: Vec<_> = RectRange::zero_start(tile_num(w), tile_num(h))?
             .slide((1, 1))
@@ -562,6 +570,7 @@ impl Frame {
         // if MeshTree::from_buf returns None, the image is completely transparent
         let mesh = MeshTree::from_buf(buf)?;
         Some(Frame {
+            name: name.to_owned(),
             tiles: tiles,
             mesh: mesh,
             w_orig: w,
@@ -607,12 +616,6 @@ impl Frame {
     }
 }
 
-/// Sprite
-pub struct Sprite {
-    frames: Vec<Frame>,
-    frame_id_map: HashMap<String, usize>,
-}
-
 pub trait Collide {
     /// LeftUp Corner of Object
     fn origin(&self) -> DotPoint;
@@ -622,10 +625,6 @@ pub trait Collide {
         let origin_o = other.origin();
         self.mesh().collide(other.mesh(), origin_s, origin_o);
     }
-}
-
-pub trait Drawable {
-    fn draw(&self, &mut RgbaImage);
 }
 
 #[cfg(test)]

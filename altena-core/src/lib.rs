@@ -16,8 +16,8 @@ extern crate sdl2_window;
 
 mod input;
 mod frame;
-mod world;
 mod mode;
+mod scene;
 #[cfg(test)]
 mod testutils;
 
@@ -28,11 +28,10 @@ use piston::event_loop::{EventLoop, EventSettings, Events};
 use piston::input::{Event, Input, Loop};
 use std::rc::Rc;
 use std::cell::{Cell, RefCell};
-use std::option::Option;
 use std::collections::HashMap;
 
 use mode::{GameMode, ModeMessage};
-use frame::{DOT_HEIGHT, DOT_WIDTH};
+use frame::dottypes::*;
 use input::InputHandler;
 
 /// clock counter type
@@ -57,8 +56,8 @@ impl Span {
 pub struct AltenaCore {
     /// OpenGL context
     gl: GlGraphics,
-    apps: Vec<Box<dyn GameMode>>,
-    current_app: usize,
+    apps: HashMap<String, Box<dyn GameMode>>,
+    current_app: String,
     /// OpenGL Texture
     /// We use only .update method to draw on screen
     texture: Cell<Texture>,
@@ -78,14 +77,16 @@ impl AltenaCore {
         (scale(DOT_WIDTH, w), scale(DOT_HEIGHT, h))
     }
 
+    fn register_app(app: impl GameMode) {}
+
     fn from_setting(setting: AltenaSetting) -> AltenaCore {
         let texture_setting = TextureSettings::new().filter(Filter::Nearest);
         let texture = Texture::empty(&texture_setting).expect("couldn't make OpenGL texture");
         let (sw, sh) = Self::get_scale(setting.width, setting.height);
         AltenaCore {
             gl: GlGraphics::new(setting.opengl),
-            apps: Vec::new(),
-            current_app: 0,
+            apps: HashMap::new(),
+            current_app: "".to_owned(),
             texture: Cell::new(texture),
             end: false,
             x_scale: sw,
@@ -106,7 +107,7 @@ impl AltenaCore {
                 }
             }
             Event::Loop(loop_event) => {
-                let mut app = match self.apps.get_mut(self.current_app) {
+                let mut app = match self.apps.get_mut(&self.current_app) {
                     Some(s) => s,
                     None => {
                         warn!("no app named {}", self.current_app);

@@ -13,5 +13,5 @@ pub(crate) fn load_img(file_name: &str) -> RgbaImage {
 
 pub(crate) fn load_frame(file_name: &str) -> Frame {
     let img = load_img(file_name);
-    Frame::from_buf(&img).unwrap()
+    Frame::from_buf(&img, file_name).unwrap()
 }
