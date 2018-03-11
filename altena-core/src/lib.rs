@@ -13,6 +13,7 @@ extern crate piston;
 extern crate rect_iter;
 extern crate rlua;
 extern crate sdl2_window;
+extern crate tuple_map;
 
 mod input;
 mod frame;
@@ -26,6 +27,7 @@ use sdl2_window::Sdl2Window;
 use piston::window::WindowSettings;
 use piston::event_loop::{EventLoop, EventSettings, Events};
 use piston::input::{Event, Input, Loop};
+use tuple_map::*;
 use std::rc::Rc;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -73,8 +75,8 @@ pub struct AltenaCore {
 
 impl AltenaCore {
     fn get_scale(w: u32, h: u32) -> (f64, f64) {
-        let scale = |d, s| f64::from(s) / f64::from(d);
-        (scale(DOT_WIDTH, w), scale(DOT_HEIGHT, h))
+        let scale = |(d, s)| f64::from(s) / f64::from(d);
+        ((DOT_WIDTH, w), (DOT_HEIGHT, h)).map(scale)
     }
 
     fn register_app(app: impl GameMode) {}

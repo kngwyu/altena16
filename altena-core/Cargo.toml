@@ -13,6 +13,7 @@ piston2d-graphics = "0.26.0"
 piston = "0.36.0"
 log = "0.4.1"
 rlua = "0.13.0"
+tuple-map = {path = "../../tuple-map"}
 
 [dependencies.pistoncore-sdl2_window]
 git = "https://github.com/PistonDevelopers/sdl2_window"

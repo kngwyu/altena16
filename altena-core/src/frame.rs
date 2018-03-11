@@ -5,6 +5,7 @@ use image::{Primitive, Rgba, RgbaImage};
 use euclid::{rect, TypedPoint2D, TypedRect, TypedSize2D, TypedVector2D, point2, vec2};
 use num_traits::{Num, ToPrimitive};
 use rect_iter::{copy_rect, copy_rect_conv, gen_rect_conv, Get2D, GetMut2D, RectRange, ToPoint};
+use tuple_map::*;
 
 use std::convert;
 use std::ops::Range;
@@ -180,8 +181,7 @@ impl MeshLeaf {
         let intersect = bbox_intersection(self.bbox, other.bbox, offset_s, offset_o)?;
         let range_s = get_tile_range(intersect, offset_s)?;
         let range_o = get_tile_range(intersect, offset_o)?;
-        let mask_s = line_mask(range_s.get_x());
-        let mask_o = line_mask(range_o.get_x());
+        let (mask_s, mask_o) = (range_s.get_x(), range_o.get_x()).map(line_mask);
         range_s
             .cloned_y()
             .zip(range_o.cloned_y())
@@ -570,15 +570,14 @@ impl fmt::Debug for Frame {
 
 impl Frame {
     pub fn from_buf(buf: &RgbaImage, name: &str) -> Option<Frame> {
-        let (h, w) = (buf.height() as usize, buf.width() as usize);
+        let (h, w) = (buf.height(), buf.width()).map(|u| u as usize);
         let tiles: Vec<_> = RectRange::zero_start(tile_num(w), tile_num(h))?
             .slide((1, 1))
             .into_iter()
             .map(|(tile_x, tile_y)| {
-                let start = |t| TILE_SIZE * (t - 1);
-                let (sx, sy) = (start(tile_x), start(tile_y));
-                let end = |start, len| min(start + TILE_SIZE, len);
-                let buf_rect = RectRange::new(sx, sy, end(sx, w), end(sy, h)).unwrap();
+                let (sx, sy) = (tile_x, tile_y).map(|t| TILE_SIZE * (t - 1));
+                let (ex, ey) = ((sx, w), (sy, h)).map(|(start, len)| min(start + TILE_SIZE, len));
+                let buf_rect = RectRange::new(sx, sy, ex, ey).unwrap();
                 let tile =
                     gen_rect_conv(buf, Tile::default, buf_rect, tile_rect(), Color::from_rgba)
                         .expect("Index bug in Frame::frame_buf!!!");
@@ -602,10 +601,9 @@ impl Frame {
         self.tiles.iter().try_fold(
             vec![vec![Dot::default(); w]; h],
             |mut buf, (tile, point)| {
-                let start = |t| TILE_SIZE * t as usize;
-                let (sx, sy) = (start(point.x), start(point.y));
-                let end = |start, len| min(start + TILE_SIZE, len);
-                let buf_rect = RectRange::new(sx, sy, end(sx, w), end(sy, h))?;
+                let (sx, sy) = (point.x, point.y).map(|t| TILE_SIZE * t as usize);
+                let (ex, ey) = ((sx, w), (sy, h)).map(|(start, len)| min(start + TILE_SIZE, len));
+                let buf_rect = RectRange::new(sx, sy, ex, ey)?;
                 copy_rect(tile, &mut buf, tile_rect(), buf_rect)?;
                 Some(buf)
             },
@@ -617,10 +615,9 @@ impl Frame {
         self.tiles.iter().try_fold(
             RgbaImage::new(w as u32, h as u32),
             |mut buf, (tile, point)| {
-                let start = |t| TILE_SIZE * t as usize;
-                let (sx, sy) = (start(point.x), start(point.y));
-                let end = |start, len| min(start + TILE_SIZE, len);
-                let buf_rect = RectRange::new(sx, sy, end(sx, w), end(sy, h))?;
+                let (sx, sy) = (point.x, point.y).map(|t| TILE_SIZE * t as usize);
+                let (ex, ey) = ((sx, w), (sy, h)).map(|(start, len)| min(start + TILE_SIZE, len));
+                let buf_rect = RectRange::new(sx, sy, ex, ey)?;
                 copy_rect_conv(tile, &mut buf, tile_rect(), buf_rect, dot_to_rgba)?;
                 Some(buf)
             },
