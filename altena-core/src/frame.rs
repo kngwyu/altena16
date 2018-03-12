@@ -2,7 +2,7 @@
 use ansi_term::Style;
 use ansi_term::Colour as TermRGB;
 use image::{Primitive, Rgba, RgbaImage};
-use euclid::{rect, TypedPoint2D, TypedRect, TypedSize2D, TypedVector2D, point2, vec2};
+use euclid::{rect, TypedPoint2D, TypedRect, TypedVector2D, point2, vec2};
 use num_traits::{Num, ToPrimitive};
 use rect_iter::{copy_rect, copy_rect_conv, gen_rect_conv, Get2D, GetMut2D, RectRange, ToPoint};
 use tuple_map::*;
@@ -12,10 +12,9 @@ use std::ops::Range;
 use std::slice;
 use std::cmp::{max, min};
 use std::fmt;
-use std::u16;
 
 pub mod dottypes {
-    use super::*;
+    use euclid::*;
     pub struct DotSpace;
     pub const DOT_HEIGHT: u16 = 240;
     pub const DOT_WIDTH: u16 = 320;
@@ -24,6 +23,7 @@ pub mod dottypes {
     pub type DotRect = TypedRect<i16, DotSpace>;
     pub type DotVector = TypedVector2D<i16, DotSpace>;
 }
+
 use self::dottypes::*;
 trait ToDotVec {
     fn to_dot_vec(&self) -> DotVector;
@@ -412,6 +412,13 @@ impl MeshTree {
         let range = RectRange::zero_start(w, h).unwrap();
         Self::from_buf_(buf, range)
     }
+
+    fn get_debug_buf(&self) -> Vec<Vec<u64>> {
+        match self {
+            MeshTree::Node(node) => node.get_debug_buf(),
+            MeshTree::Leaf(leaf) => leaf.get_debug_buf(),
+        }
+    }
 }
 
 /// altena don't support alpha blending, so just rgb is enough
@@ -440,7 +447,7 @@ impl Color {
         res[0] = convert::From::from(self.r);
         res[1] = convert::From::from(self.g);
         res[2] = convert::From::from(self.b);
-        res[3] = T::max_value();
+        res[3] = convert::From::from(0b10000000);
         res
     }
     fn to_term(&self) -> TermRGB {
@@ -451,10 +458,10 @@ impl Color {
 /// altena16 doesn't do alpha blending, and Alpha Value has special meaning
 /// 0b1
 /// the first digit represents the pixel is transparent or not!
-///    000
-/// next 3 digits have no meaning
-///       1011
-/// the last 4 digits are used to customize collison attribute
+///    1011
+/// the next 4 digits are used to customize collison attribute
+/// the last 3 digits have no meaning
+///        000
 fn is_trans<T: Primitive>(rgba: &Rgba<T>) -> bool {
     let alpha = match rgba[3].to_u8() {
         Some(a) => a,
@@ -543,7 +550,7 @@ pub struct Frame {
     tiles: Vec<(Tile, TilePoint)>,
     /// for collision
     mesh: MeshTree,
-    /// for
+    /// to restore png image
     w_orig: usize,
     h_orig: usize,
 }
@@ -610,7 +617,7 @@ impl Frame {
         )
     }
 
-    fn get_img_buf(&self) -> Option<RgbaImage> {
+    fn get_color_buf(&self) -> Option<RgbaImage> {
         let (w, h) = (self.w_orig, self.h_orig);
         self.tiles.iter().try_fold(
             RgbaImage::new(w as u32, h as u32),
@@ -622,6 +629,24 @@ impl Frame {
                 Some(buf)
             },
         )
+    }
+
+    fn restore_buf(&self) -> Option<RgbaImage> {
+        let color = self.get_color_buf()?;
+        let mesh = self.mesh.get_debug_buf();
+        let get_bits = |x: usize, y: usize| {
+            let mo = x % TILE_SIZE;
+            let x = x / TILE_SIZE;
+            let shift = (TILE_SIZE - 1 - mo) * 4;
+            (mesh[y][x] >> shift) as u8 & 0b00001111
+        };
+        let c_range = RectRange::zero_start(color.width(), color.height()).unwrap();
+        Some(c_range.into_iter().fold(color, |mut buf, (x, y)| {
+            let bits = get_bits(x as usize, y as usize);
+            let p = buf.get_pixel_mut(x, y);
+            p[3] |= bits << 3;
+            buf
+        }))
     }
 
     fn bbox(&self) -> DotRect {
@@ -644,7 +669,7 @@ pub trait Collide {
 }
 
 #[cfg(test)]
-mod screen_test {
+mod frame_test {
     use super::*;
     use testutils::{load_frame, load_img};
     #[test]
@@ -696,16 +721,18 @@ mod screen_test {
     fn frame_to_img_buf() {
         let img = load_img("../test-assets/chara2.png");
         let chara2 = load_frame("../test-assets/chara2.png");
-        let chara_img = chara2.get_img_buf().unwrap();
+        let chara_img = chara2.restore_buf().unwrap();
         let range = RectRange::zero_start(img.width(), img.height()).unwrap();
         assert!(range.into_iter().all(|p| {
             let orig = *img.get_point(p).unwrap();
             let converted = *chara_img.get_point(p).unwrap();
-            if is_trans(&orig) {
+            let color = if is_trans(&orig) {
                 is_trans(&converted)
             } else {
-                orig == converted
-            }
+                (0..3).all(|i| orig[i] == converted[i])
+            };
+            let mask = |u: u8| u & 0b11111000;
+            color && (orig, converted).map(|p| mask(p[3])).same()
         }));
     }
 }

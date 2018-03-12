@@ -1,8 +1,8 @@
 use euclid;
-pub struct PhysicalSpace;
+pub struct SimulatorSpace;
 pub type Float = f64;
-pub type Point = euclid::TypedPoint2D<Float, PhysicalSpace>;
-pub type Vector = euclid::TypedVector2D<Float, PhysicalSpace>;
+pub type Point = euclid::TypedPoint2D<Float, SimulatorSpace>;
+pub type Vector = euclid::TypedVector2D<Float, SimulatorSpace>;
 pub type Angle = euclid::Angle<Float>;
 
 pub fn angle_to_vector(a: Angle) -> Vector {
@@ -16,11 +16,12 @@ pub trait Move {
     /// V(t)
     fn velocity(&self) -> Vector;
 }
+
 /// 2nd order Runge Kutta
 pub fn simulate_rk2(
     obj: &impl Move,
-    force: impl Fn(Vector) -> Vector,
     dt: Float,
+    force: impl Fn(Vector) -> Vector,
 ) -> (Point, Vector) {
     let cur_p = obj.point();
     let cur_v = obj.velocity();
@@ -32,8 +33,8 @@ pub fn simulate_rk2(
 /// euler
 pub fn simulate_euler(
     obj: &impl Move,
-    force: impl Fn(Vector) -> Vector,
     dt: Float,
+    force: impl Fn(Vector) -> Vector,
 ) -> (Point, Vector) {
     let cur_p = obj.point();
     let cur_v = obj.velocity();
@@ -41,18 +42,19 @@ pub fn simulate_euler(
 }
 
 #[cfg(test)]
-mod test {
+mod simulator_test {
     use super::*;
     use std::fs::File;
     use std::io::BufWriter;
     use std::io::Write as IoWrite;
     #[test]
     fn test_rk2() {
+        #[derive(Clone)]
         struct Ball {
             p: Point,
             v: Vector,
         }
-        impl physics::Move for Ball {
+        impl Move for Ball {
             fn point(&self) -> Point {
                 self.p
             }
@@ -62,17 +64,25 @@ mod test {
         }
         let angle = Angle::degrees(30.0);
         let v0 = 25.0;
-        let mut b = Ball {
+        let mut b1 = Ball {
             p: Point::new(0.0, 0.0),
             v: angle_to_vector(angle) * v0,
         };
+        let mut b2 = b1.clone();
         let f = File::create("out.csv").unwrap();
         let mut buf = BufWriter::new(f);
         writeln!(buf, "x,y").unwrap();
-        (0..4000).for_each(|_| {
-            let nxt = physics::simulate_rk2(&b, |v| Vector::new(0.0, -9.8) - v * 5e-3 * v.length());
-            b = Ball { p: nxt.0, v: nxt.1 };
-            writeln!(buf, "{}, {}", b.p.x, b.p.y).unwrap();
+        let dt = 0.001;
+        let _ = (0..4000).fold(0.0, |diff_before, i| {
+            let nxt = simulate_rk2(&b1, dt, |v| Vector::new(0.0, -9.8) - v * 5e-3 * v.length());
+            b1 = Ball { p: nxt.0, v: nxt.1 };
+            writeln!(buf, "{}, {}", b1.p.x, b1.p.y).unwrap();
+            let nxt = simulate_euler(&b2, dt, |v| Vector::new(0.0, -9.8) - v * 5e-3 * v.length());
+            b2 = Ball { p: nxt.0, v: nxt.1 };
+            let diff = (b2.p - b1.p).length();
+            assert!(diff < f64::from(i + 1) * 0.00001);
+            assert!(diff > diff_before);
+            diff
         });
     }
 }

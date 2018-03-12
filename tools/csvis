@@ -1,0 +1,3 @@
+#!/usr/bin/fish
+Rscript csvis.r $argv[1]
+open Rplots.pdf

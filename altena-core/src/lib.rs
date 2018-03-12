@@ -19,6 +19,7 @@ mod input;
 mod frame;
 mod mode;
 mod scene;
+mod simulator;
 #[cfg(test)]
 mod testutils;
 
@@ -38,7 +39,7 @@ use input::InputHandler;
 
 /// clock counter type
 /// currently we use Update event as a counter, but it may be changed in the future
-pub type Clock = u32;
+pub type Clock = u64;
 
 /// Time span type
 /// We use our own type instead of Range, to get 'Copy'
@@ -68,7 +69,6 @@ pub struct AltenaCore {
     /// REAL_SCREEN_SIZE / DOT_SCREEN_SIZE
     x_scale: f64,
     y_scale: f64,
-    /// it pottentialy cause overflow, but not reallistic(40 days after)
     upd_count: Clock,
     input_handle: InputHandler,
 }
