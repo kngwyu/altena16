@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::mem;
 use piston::input::{Button, ButtonState, Input, Motion};
 
@@ -6,7 +6,7 @@ use {Clock, Span};
 
 /// message type Handler sends to User App
 #[derive(Clone, Debug)]
-pub struct InputMessage {
+pub struct InputMessage_ {
     pub buttons: Vec<ButtonMessage>,
     pub focused: bool,
     pub mouse_xy: Option<(f64, f64)>,
@@ -74,14 +74,14 @@ impl InputHandler {
         };
         self.released_buttons.push((b, span));
     }
-    pub fn get_message(&mut self) -> InputMessage {
+    pub fn get_message(&mut self) -> InputMessage_ {
         let mut v = vec![];
         mem::swap(&mut self.released_buttons, &mut v);
         let buttons = self.pressed_buttons
             .iter()
             .map(|(&b, &c)| ButtonMessage::press(b, c))
             .chain(v.into_iter().map(|(b, s)| ButtonMessage::release(b, s)));
-        InputMessage {
+        InputMessage_ {
             buttons: buttons.collect(),
             focused: self.focused,
             mouse_xy: self.mouse_xy,
@@ -123,4 +123,9 @@ impl InputHandler {
             _ => {}
         }
     }
+}
+
+pub enum InputMessage {
+    Str(String),
+    WithPoint((String, (f64, f64))),
 }

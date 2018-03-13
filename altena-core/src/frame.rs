@@ -419,6 +419,13 @@ impl MeshTree {
             MeshTree::Leaf(leaf) => leaf.get_debug_buf(),
         }
     }
+
+    fn bbox(&self) -> DotRect {
+        match self {
+            MeshTree::Node(node) => node.bbox,
+            MeshTree::Leaf(leaf) => leaf.bbox,
+        }
+    }
 }
 
 /// altena don't support alpha blending, so just rgb is enough
@@ -546,10 +553,9 @@ impl GetMut2D for Tile {
 pub struct Frame {
     // TODO: is it really useful?
     name: String,
+    mesh: MeshTree,
     /// for drawing
     tiles: Vec<(Tile, TilePoint)>,
-    /// for collision
-    mesh: MeshTree,
     /// to restore png image
     w_orig: usize,
     h_orig: usize,
@@ -570,8 +576,7 @@ impl fmt::Debug for Frame {
             }
             writeln!(f, "")?;
         }
-        writeln!(f, "}}")?;
-        write!(f, "{:?}", self.mesh)
+        writeln!(f, "}}")
     }
 }
 
@@ -592,12 +597,11 @@ impl Frame {
                 (tile, tile_p)
             })
             .collect();
-        // if MeshTree::from_buf returns None, the image is completely transparent
         let mesh = MeshTree::from_buf(buf)?;
         Some(Frame {
             name: name.to_owned(),
-            tiles: tiles,
             mesh: mesh,
+            tiles: tiles,
             w_orig: w,
             h_orig: h,
         })
@@ -650,10 +654,7 @@ impl Frame {
     }
 
     fn bbox(&self) -> DotRect {
-        match self.mesh {
-            MeshTree::Leaf(ref leaf) => leaf.bbox,
-            MeshTree::Node(ref node) => node.bbox,
-        }
+        self.mesh.bbox()
     }
 }
 
@@ -671,7 +672,7 @@ pub trait Collide {
 #[cfg(test)]
 mod frame_test {
     use super::*;
-    use testutils::{load_frame, load_img};
+    use testutils::{load_frame, load_img, load_mesh};
     #[test]
     fn load_1tile() {
         let frame = load_frame("../test-assets/chara1.png");
@@ -692,29 +693,23 @@ mod frame_test {
     }
     #[test]
     fn collide_l_1() {
-        let bullet = load_frame("../test-assets/bullet.png");
-        let chara1 = load_frame("../test-assets/chara1.png");
-        let c = chara1
-            .mesh
-            .collide(&bullet.mesh, point2(0, 0), point2(0, 0));
+        let bullet = load_mesh("../test-assets/bullet.png");
+        let chara1 = load_mesh("../test-assets/chara1.png");
+        let c = chara1.collide(&bullet, point2(0, 0), point2(0, 0));
         assert_eq!(c, Some(rect(7, 8, 1, 1)))
     }
     #[test]
     fn collide_l_2() {
-        let bullet = load_frame("../test-assets/bullet.png");
-        let chara1 = load_frame("../test-assets/chara1.png");
-        let c = chara1
-            .mesh
-            .collide(&bullet.mesh, point2(16, 16), point2(12, 11));
+        let bullet = load_mesh("../test-assets/bullet.png");
+        let chara1 = load_mesh("../test-assets/chara1.png");
+        let c = chara1.collide(&bullet, point2(16, 16), point2(12, 11));
         assert_eq!(c, Some(rect(19, 19, 1, 1)));
     }
     #[test]
     fn collide_n_1() {
-        let chara1 = load_frame("../test-assets/chara1.png");
-        let chara2 = load_frame("../test-assets/chara2.png");
-        let c = chara2
-            .mesh
-            .collide(&chara1.mesh, point2(0, 0), point2(19, 16));
+        let chara1 = load_mesh("../test-assets/chara1.png");
+        let chara2 = load_mesh("../test-assets/chara2.png");
+        let c = chara2.collide(&chara1, point2(0, 0), point2(19, 16));
         assert_eq!(c, Some(rect(21, 18, 10, 14)));
     }
     #[test]

@@ -8,24 +8,26 @@ use frame::dottypes::*;
 pub struct Sprite {
     /// id for sprite
     name: String,
-    /// node type of sprite
-    ty: NodeType,
+    /// node type
+    typ: NodeType,
+    /// sprites with coordinate related to its parent
     childlen: HashMap<String, Sprite>,
+    /// draw priority
+    priority: u8,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum NodeType {
-    /// Root Sprite
+    /// Root Sprite(Window)
     Root,
     /// child has relative position in parent's coordinate
     Child(DotPoint),
 }
-/// helper struct to define sprite hierarchy
-pub struct SpriteBuilder {}
 
+/// Action to Sprite
 pub enum SpriteAction {
-
-}
-
-struct Timer {
-    rest: u32,
+    Move(DotVector),
+    ChangeFrame(String),
+    Rotate(u16),
+    Scale(u8),
 }

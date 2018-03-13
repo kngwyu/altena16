@@ -1,6 +1,6 @@
 use image::{open, DynamicImage, RgbaImage};
 use std::path::Path;
-use frame::Frame;
+use frame::{Frame, MeshTree};
 
 pub(crate) fn load_img(file_name: &str) -> RgbaImage {
     let p = Path::new(file_name);
@@ -14,4 +14,9 @@ pub(crate) fn load_img(file_name: &str) -> RgbaImage {
 pub(crate) fn load_frame(file_name: &str) -> Frame {
     let img = load_img(file_name);
     Frame::from_buf(&img, file_name).unwrap()
+}
+
+pub(crate) fn load_mesh(file_name: &str) -> MeshTree {
+    let img = load_img(file_name);
+    MeshTree::from_buf(&img).unwrap()
 }

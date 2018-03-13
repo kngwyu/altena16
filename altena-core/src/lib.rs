@@ -19,9 +19,11 @@ mod input;
 mod frame;
 mod mode;
 mod scene;
+mod schedule;
 mod simulator;
 #[cfg(test)]
 mod testutils;
+mod ui;
 
 use opengl_graphics::{Filter, GlGraphics, OpenGL, Texture, TextureSettings};
 use sdl2_window::Sdl2Window;
@@ -41,7 +43,7 @@ use input::InputHandler;
 /// currently we use Update event as a counter, but it may be changed in the future
 pub type Clock = u64;
 
-/// Time span type
+/// Inclusive time span
 /// We use our own type instead of Range, to get 'Copy'
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Span {
@@ -52,6 +54,9 @@ pub struct Span {
 impl Span {
     fn new(s: Clock, e: Clock) -> Span {
         Span { start: s, end: e }
+    }
+    fn length(&self) -> Clock {
+        1 + self.end - self.start
     }
 }
 
