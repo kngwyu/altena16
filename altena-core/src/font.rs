@@ -122,7 +122,7 @@ mod font_test {
     #[test]
     fn draw_tile() {
         let setting = FontSetting::new();
-        let migu = include_bytes!("/usr/share/fonts/TTF/migu-1m-regular.ttf");
+        let migu = include_bytes!("../../assets/migu-1m-regular.ttf");
         let mut font = FontHandle::new(&migu[..]);
         let mut tile = Tile::new(Some(Color::white()));
         font.draw(&mut tile, 'あ', &setting).unwrap();
