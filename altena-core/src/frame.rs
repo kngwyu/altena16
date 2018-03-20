@@ -1,17 +1,18 @@
 //! tile, frame, collision detection
-use ansi_term::Style;
-use ansi_term::Colour as TermRGB;
-use image::{Primitive, Rgba, RgbaImage};
-use euclid::{rect, TypedPoint2D, TypedRect, TypedVector2D, point2, vec2};
-use num_traits::{Num, ToPrimitive};
-use rect_iter::{copy_rect, copy_rect_conv, gen_rect_conv, Get2D, GetMut2D, RectRange, ToPoint};
-use tuple_map::*;
 
-use std::convert;
+use image::RgbaImage;
+use euclid::{rect, TypedRect, TypedVector2D, point2, vec2};
+use num_traits::{Num, ToPrimitive};
+use rect_iter::{copy_rect, copy_rect_conv, gen_rect_conv, Get2D, RectRange, ToPoint};
+use tuple_map::TupleMap2;
+
 use std::ops::Range;
 use std::slice;
 use std::cmp::{max, min};
 use std::fmt;
+
+use tile::{self, AltenaAlpha, Color, Dot, Tile};
+use tile::tiletypes::*;
 
 pub mod dottypes {
     use euclid::*;
@@ -52,10 +53,6 @@ fn slide_rect<T: Num + Copy, P: ToPoint<T>, Unit>(
         size: rect.size,
     }
 }
-
-pub struct TileSpace;
-pub type TilePoint = TypedPoint2D<u8, TileSpace>;
-pub const TILE_SIZE: usize = 16;
 
 /// Return tile size(16 × 16)
 fn tile_size() -> DotSize {
@@ -236,7 +233,7 @@ impl MeshLeaf {
             [0u64; TILE_SIZE],
             |mut array, ((x, y), (buf_x, buf_y))| {
                 let p = buf.get_pixel(buf_x, buf_y);
-                let collision_bits = get_collision_bits(p);
+                let collision_bits = p.collision_bits();
                 if collision_bits != 0 {
                     upd_minmax(x, y);
                     let shift = (TILE_SIZE - x - 1) * 4;
@@ -428,131 +425,11 @@ impl MeshTree {
     }
 }
 
-/// altena don't support alpha blending, so just rgb is enough
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Color {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-}
-
-impl Color {
-    fn from_rgba<T: Primitive>(rgba: &Rgba<T>) -> Option<Color> {
-        if is_trans(rgba) {
-            return None;
-        }
-        Some(Color {
-            r: rgba[0].to_u8()?,
-            g: rgba[1].to_u8()?,
-            b: rgba[2].to_u8()?,
-        })
-    }
-    fn to_rgba<T: Primitive + From<u8>>(&self) -> Rgba<T> {
-        let mut res = Rgba {
-            data: [T::zero(); 4],
-        };
-        res[0] = convert::From::from(self.r);
-        res[1] = convert::From::from(self.g);
-        res[2] = convert::From::from(self.b);
-        res[3] = convert::From::from(0b10000000);
-        res
-    }
-    fn to_term(&self) -> TermRGB {
-        TermRGB::RGB(self.r, self.g, self.b)
-    }
-}
-
-/// altena16 doesn't do alpha blending, and Alpha Value has special meaning
-/// 0b1
-/// the first digit represents the pixel is transparent or not!
-///    1011
-/// the next 4 digits are used to customize collison attribute
-/// the last 3 digits have no meaning
-///        000
-fn is_trans<T: Primitive>(rgba: &Rgba<T>) -> bool {
-    let alpha = match rgba[3].to_u8() {
-        Some(a) => a,
-        None => return true,
-    };
-    (alpha & 1) == 0
-}
-
-fn get_collision_bits<T: Primitive>(rgba: &Rgba<T>) -> u8 {
-    let alpha = match rgba[3].to_u8() {
-        Some(a) => a,
-        None => return 0,
-    };
-    alpha & 0b00001111
-}
-
-pub type Dot = Option<Color>;
-
-fn dot_to_rgba<T: Primitive + From<u8>>(dot: &Dot) -> Rgba<T> {
-    match *dot {
-        Some(c) => c.to_rgba(),
-        None => Rgba {
-            data: [T::zero(); 4],
-        },
-    }
-}
-/// 16×16 tile used to draw objects.
-#[derive(Clone)]
-pub struct Tile {
-    /// Buffer of tile data
-    inner: [Dot; TILE_SIZE * TILE_SIZE],
-}
-
-impl fmt::Debug for Tile {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "tile: {{")?;
-        for i in 0..TILE_SIZE {
-            for j in 0..TILE_SIZE {
-                let dot = self.get_xy(j, i).unwrap();
-                match dot {
-                    Some(rgb) => write!(f, "{}", Style::new().on(rgb.to_term()).paint("  "))?,
-                    None => write!(f, "  ")?,
-                }
-            }
-            writeln!(f, "")?;
-        }
-        writeln!(f, "}}")
-    }
-}
-
-impl Default for Tile {
-    fn default() -> Tile {
-        Tile {
-            inner: [None; TILE_SIZE * TILE_SIZE],
-        }
-    }
-}
-
-impl Get2D for Tile {
-    type Item = Dot;
-    fn get_xy<T: ToPrimitive>(&self, x: T, y: T) -> Option<&Dot> {
-        let (x, y) = (x.to_usize()?, y.to_usize()?);
-        if TILE_SIZE <= x || TILE_SIZE <= y {
-            return None;
-        }
-        Some(&self.inner[y * TILE_SIZE + x])
-    }
-}
-
-impl GetMut2D for Tile {
-    type Item = Dot;
-    fn get_mut_xy<T: ToPrimitive>(&mut self, x: T, y: T) -> Option<&mut Dot> {
-        let (x, y) = (x.to_usize()?, y.to_usize()?);
-        if TILE_SIZE <= x || TILE_SIZE <= y {
-            return None;
-        }
-        Some(&mut self.inner[y * TILE_SIZE + x])
-    }
-}
-
 /// 1 Frame of sprite
 pub struct Frame {
-    // TODO: is it really useful?
+    /// name of Frame
     name: String,
+    /// collision
     mesh: MeshTree,
     /// for drawing
     tiles: Vec<(Tile, TilePoint)>,
@@ -568,11 +445,8 @@ impl fmt::Debug for Frame {
         let buf = self.get_debug_buf().unwrap();
         for i in 0..buf.len() {
             for j in 0..buf[0].len() {
-                let &dot = buf.get_xy(j, i).unwrap();
-                match dot {
-                    Some(rgb) => write!(f, "{}", Style::new().on(rgb.to_term()).paint("  "))?,
-                    None => write!(f, "  ")?,
-                }
+                let dot = buf.get_xy(j, i).unwrap();
+                write!(f, "{:?}", dot);
             }
             writeln!(f, "")?;
         }
@@ -615,7 +489,7 @@ impl Frame {
                 let (sx, sy) = (point.x, point.y).map(|t| TILE_SIZE * t as usize);
                 let (ex, ey) = ((sx, w), (sy, h)).map(|(start, len)| min(start + TILE_SIZE, len));
                 let buf_rect = RectRange::new(sx, sy, ex, ey)?;
-                copy_rect(tile, &mut buf, tile_rect(), buf_rect)?;
+                copy_rect(tile, &mut buf, tile_rect(), buf_rect).ok()?;
                 Some(buf)
             },
         )
@@ -629,7 +503,7 @@ impl Frame {
                 let (sx, sy) = (point.x, point.y).map(|t| TILE_SIZE * t as usize);
                 let (ex, ey) = ((sx, w), (sy, h)).map(|(start, len)| min(start + TILE_SIZE, len));
                 let buf_rect = RectRange::new(sx, sy, ex, ey)?;
-                copy_rect_conv(tile, &mut buf, tile_rect(), buf_rect, dot_to_rgba)?;
+                copy_rect_conv(tile, &mut buf, tile_rect(), buf_rect, tile::dot_to_rgba).ok()?;
                 Some(buf)
             },
         )
@@ -648,7 +522,7 @@ impl Frame {
         Some(c_range.into_iter().fold(color, |mut buf, (x, y)| {
             let bits = get_bits(x as usize, y as usize);
             let p = buf.get_pixel_mut(x, y);
-            p[3] |= bits << 3;
+            p[3] |= bits;
             buf
         }))
     }
@@ -721,13 +595,7 @@ mod frame_test {
         assert!(range.into_iter().all(|p| {
             let orig = *img.get_point(p).unwrap();
             let converted = *chara_img.get_point(p).unwrap();
-            let color = if is_trans(&orig) {
-                is_trans(&converted)
-            } else {
-                (0..3).all(|i| orig[i] == converted[i])
-            };
-            let mask = |u: u8| u & 0b11111000;
-            color && (orig, converted).map(|p| mask(p[3])).same()
+            true
         }));
     }
 }

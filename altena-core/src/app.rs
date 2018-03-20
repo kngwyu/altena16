@@ -4,16 +4,16 @@ use piston::input::Event;
 use image::RgbaImage;
 use opengl_graphics::Texture;
 /// messages used to Mode transition
-pub enum ModeMessage {
+pub enum AppMessage {
     Transit(String),
     None,
 }
 
-/// altena16 handles several UI modes
-pub trait GameMode {
-    fn get_buf(&self) -> &RgbaImage;
-    fn get_texture(&self) -> &Texture;
-    fn handle_event(&mut self, e: Event) -> ModeMessage;
+/// altena16 handles several application
+pub trait App {
+    fn get_buf(&self) -> Option<&RgbaImage>;
+    fn draw_ui(&self);
+    fn handle_event(&mut self, e: Event) -> AppMessage;
     fn name(&self) -> &str;
 }
 

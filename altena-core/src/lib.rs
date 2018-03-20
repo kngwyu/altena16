@@ -1,5 +1,5 @@
 #![feature(conservative_impl_trait, dyn_trait, iterator_try_fold, match_default_bindings, nll,
-           universal_impl_trait)]
+           try_trait, universal_impl_trait)]
 
 extern crate ansi_term;
 extern crate euclid;
@@ -11,18 +11,20 @@ extern crate num_traits;
 extern crate opengl_graphics;
 extern crate piston;
 extern crate rect_iter;
-extern crate rlua;
+extern crate rusttype;
 extern crate sdl2_window;
 extern crate tuple_map;
 
-mod input;
+mod app;
+mod font;
 mod frame;
-mod mode;
+mod input;
 mod scene;
 mod schedule;
 mod simulator;
 #[cfg(test)]
 mod testutils;
+mod tile;
 mod ui;
 
 use opengl_graphics::{Filter, GlGraphics, OpenGL, Texture, TextureSettings};
@@ -35,7 +37,7 @@ use std::rc::Rc;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
-use mode::{GameMode, ModeMessage};
+use app::{App, AppMessage};
 use frame::dottypes::*;
 use input::InputHandler;
 
@@ -64,7 +66,7 @@ impl Span {
 pub struct AltenaCore {
     /// OpenGL context
     gl: GlGraphics,
-    apps: HashMap<String, Box<dyn GameMode>>,
+    apps: HashMap<String, Box<dyn App>>,
     current_app: String,
     /// OpenGL Texture
     /// We use only .update method to draw on screen
@@ -84,7 +86,7 @@ impl AltenaCore {
         ((DOT_WIDTH, w), (DOT_HEIGHT, h)).map(scale)
     }
 
-    fn register_app(app: impl GameMode) {}
+    fn register_app(app: impl App) {}
 
     fn from_setting(setting: AltenaSetting) -> AltenaCore {
         let texture_setting = TextureSettings::new().filter(Filter::Nearest);
@@ -123,18 +125,19 @@ impl AltenaCore {
                 };
                 match loop_event {
                     Loop::Render(args) => {
-                        let buf = app.get_buf();
-                        let mut t = self.texture.get_mut();
-                        t.update(&buf);
-                        // TODO: custom transform matrix support
-                        let (xs, ys) = (self.x_scale, self.y_scale);
-                        self.gl.draw(args.viewport(), |ctx, gl| {
-                            use graphics::*;
-                            // TODO: custom clear color support
-                            clear([1.0; 4], gl);
-                            let trans = ctx.transform.scale(xs, ys);
-                            image(t, trans, gl);
-                        });
+                        if let Some(buf) = app.get_buf() {
+                            let mut t = self.texture.get_mut();
+                            t.update(&buf);
+                            // TODO: custom transform matrix support
+                            let (xs, ys) = (self.x_scale, self.y_scale);
+                            self.gl.draw(args.viewport(), |ctx, gl| {
+                                use graphics::*;
+                                // TODO: custom clear color support
+                                clear([1.0; 4], gl);
+                                let trans = ctx.transform.scale(xs, ys);
+                                image(t, trans, gl);
+                            });
+                        }
                     }
                     Loop::Update(args) => {
                         self.upd_count += 1;

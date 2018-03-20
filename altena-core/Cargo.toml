@@ -12,13 +12,13 @@ num-traits = "0.2.0"
 piston2d-graphics = "0.26.0"
 piston = "0.36.0"
 log = "0.4.1"
-rlua = "0.13.0"
-tuple-map = {path = "../../tuple-map"}
+tuple-map = {path = "../../tuple-map", version = "0.1.0"}
+rusttype = "0.4.1"
 
 [dependencies.pistoncore-sdl2_window]
 git = "https://github.com/PistonDevelopers/sdl2_window"
 
 [dependencies.rect-iter]
 path = "../../rect-iter"
-features = ["serde", "image"]
+features = ["image"]
 
