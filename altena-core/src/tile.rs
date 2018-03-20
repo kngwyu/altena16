@@ -11,9 +11,14 @@ use std::cmp;
 
 pub mod tiletypes {
     use euclid::TypedPoint2D;
+    use rect_iter::RectRange;
     pub struct TileSpace;
     pub type TilePoint = TypedPoint2D<u8, TileSpace>;
     pub const TILE_SIZE: usize = 16;
+    /// RectIter for tile
+    pub fn tile_rect() -> RectRange<usize> {
+        RectRange::new(0, 0, TILE_SIZE, TILE_SIZE).unwrap()
+    }
 }
 
 use self::tiletypes::*;
@@ -322,7 +327,7 @@ impl<T: Primitive> AltenaAlpha for Rgba<T> {
 }
 
 /// altena don't support alpha blending, so just rgb is enough
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Color {
     pub r: u8,
     pub g: u8,

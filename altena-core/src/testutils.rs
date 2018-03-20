@@ -1,6 +1,7 @@
 use image::{open, DynamicImage, RgbaImage};
 use std::path::Path;
 use frame::{Frame, MeshTree};
+use font::{FontHandle, FontSetting};
 
 pub(crate) fn load_img(file_name: &str) -> RgbaImage {
     let p = Path::new(file_name);

@@ -11,7 +11,7 @@ use std::slice;
 use std::cmp::{max, min};
 use std::fmt;
 
-use tile::{self, Alpha, AltenaAlpha, Color, Dot, Tile};
+use tile::{Alpha, AltenaAlpha, Color, Dot, Tile};
 use tile::tiletypes::*;
 
 pub mod dottypes {
@@ -61,11 +61,6 @@ fn tile_size() -> DotSize {
 
 fn tile_num(len: usize) -> usize {
     (len + TILE_SIZE - 1) / TILE_SIZE
-}
-
-/// RectIter for tile
-fn tile_rect() -> RectRange<usize> {
-    RectRange::new(0, 0, TILE_SIZE, TILE_SIZE).unwrap()
 }
 
 /// Calculate intersection of tile and DotRect and return range
