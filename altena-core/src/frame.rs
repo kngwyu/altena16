@@ -1,6 +1,6 @@
 //! tile, frame, collision detection
 
-use image::RgbaImage;
+use image::{Rgba, RgbaImage};
 use euclid::{rect, TypedRect, TypedVector2D, point2, vec2};
 use num_traits::{Num, ToPrimitive};
 use rect_iter::{copy_rect, copy_rect_conv, gen_rect_conv, Get2D, RectRange, ToPoint};
@@ -11,7 +11,7 @@ use std::slice;
 use std::cmp::{max, min};
 use std::fmt;
 
-use tile::{self, AltenaAlpha, Color, Dot, Tile};
+use tile::{self, Alpha, AltenaAlpha, Color, Dot, Tile};
 use tile::tiletypes::*;
 
 pub mod dottypes {
@@ -433,6 +433,7 @@ pub struct Frame {
     mesh: MeshTree,
     /// for drawing
     tiles: Vec<(Tile, TilePoint)>,
+    alpha: Alpha,
     /// to restore png image
     w_orig: usize,
     h_orig: usize,
@@ -446,7 +447,7 @@ impl fmt::Debug for Frame {
         for i in 0..buf.len() {
             for j in 0..buf[0].len() {
                 let dot = buf.get_xy(j, i).unwrap();
-                write!(f, "{:?}", dot);
+                write!(f, "{:?}", dot)?;
             }
             writeln!(f, "")?;
         }
@@ -472,10 +473,13 @@ impl Frame {
             })
             .collect();
         let mesh = MeshTree::from_buf(buf)?;
+        let alpha = buf.pixels()
+            .fold(Alpha(0), |mut alpha, p| *alpha.max(p.alpha()));
         Some(Frame {
             name: name.to_owned(),
             mesh: mesh,
             tiles: tiles,
+            alpha: alpha,
             w_orig: w,
             h_orig: h,
         })
@@ -495,7 +499,7 @@ impl Frame {
         )
     }
 
-    fn get_color_buf(&self) -> Option<RgbaImage> {
+    fn get_color_buf(&self, cnv: &impl Fn(&Dot) -> Rgba<u8>) -> Option<RgbaImage> {
         let (w, h) = (self.w_orig, self.h_orig);
         self.tiles.iter().try_fold(
             RgbaImage::new(w as u32, h as u32),
@@ -503,14 +507,24 @@ impl Frame {
                 let (sx, sy) = (point.x, point.y).map(|t| TILE_SIZE * t as usize);
                 let (ex, ey) = ((sx, w), (sy, h)).map(|(start, len)| min(start + TILE_SIZE, len));
                 let buf_rect = RectRange::new(sx, sy, ex, ey)?;
-                copy_rect_conv(tile, &mut buf, tile_rect(), buf_rect, tile::dot_to_rgba).ok()?;
+                copy_rect_conv(tile, &mut buf, tile_rect(), buf_rect, cnv).ok()?;
                 Some(buf)
             },
         )
     }
-
     fn restore_buf(&self) -> Option<RgbaImage> {
-        let color = self.get_color_buf()?;
+        let color_buf = self.get_color_buf(&|d| match d {
+            Some(rgb) => {
+                let mut res = rgb.to_rgba();
+                res[3] = self.alpha.0 << 4;
+                res
+            }
+            None => {
+                let mut res = Rgba { data: [255; 4] };
+                res[3] = 0;
+                res
+            }
+        })?;
         let mesh = self.mesh.get_debug_buf();
         let get_bits = |x: usize, y: usize| {
             let mo = x % TILE_SIZE;
@@ -518,8 +532,8 @@ impl Frame {
             let shift = (TILE_SIZE - 1 - mo) * 4;
             (mesh[y][x] >> shift) as u8 & 0b00001111
         };
-        let c_range = RectRange::zero_start(color.width(), color.height()).unwrap();
-        Some(c_range.into_iter().fold(color, |mut buf, (x, y)| {
+        let c_range = RectRange::zero_start(color_buf.width(), color_buf.height()).unwrap();
+        Some(c_range.into_iter().fold(color_buf, |mut buf, (x, y)| {
             let bits = get_bits(x as usize, y as usize);
             let p = buf.get_pixel_mut(x, y);
             p[3] |= bits;
@@ -595,7 +609,7 @@ mod frame_test {
         assert!(range.into_iter().all(|p| {
             let orig = *img.get_point(p).unwrap();
             let converted = *chara_img.get_point(p).unwrap();
-            true
+            orig == converted
         }));
     }
 }
