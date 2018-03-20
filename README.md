@@ -9,4 +9,5 @@
 [IPA Font License](./IPA_Font_License_Agreement_v1.0.txt)
 
 - other
+
 [MIT](./LICENSE-MIT)
