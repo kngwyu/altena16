@@ -146,6 +146,7 @@ impl FontSetting {
     }
 }
 
+#[derive(Clone, Debug)]
 struct FontCache {
     inner: Vec<u8>,
     scale: usize,
@@ -171,12 +172,12 @@ impl FontCache {
     }
     fn get(&self, x: u32, y: u32) -> Alpha {
         let (x, y) = (x, y).map(|a| a as usize);
-        let id = self.scale * y + x;
-        let id2 = id / 2;
-        let val = if (id & 1) == 1 {
-            (self.inner[id2] & 0b11110000) >> 4
+        let pos = self.scale * y + x;
+        let id = pos / 2;
+        let val = if (pos & 1) == 1 {
+            (self.inner[id] & 0b11110000) >> 4
         } else {
-            self.inner[id2] & 0b00001111
+            self.inner[id] & 0b00001111
         };
         Alpha(val)
     }
@@ -186,6 +187,7 @@ mod font_test {
     use super::*;
     use tile::Tile;
     use rect_iter::Get2D;
+    use test::Bencher;
     const MIGU: &[u8; 3137552] = include_bytes!("../../assets/migu-1m-regular.ttf");
     #[test]
     fn draw_tile() {
@@ -198,6 +200,7 @@ mod font_test {
             tile = Tile::new(Some(Color::white()));
         }
     }
+
     #[test]
     fn draw_tile_cached() {
         let setting = FontSetting::new();
@@ -213,5 +216,30 @@ mod font_test {
             });
             tile = Tile::new(Some(Color::white()));
         }
+    }
+
+    #[bench]
+    fn no_cache(b: &mut Bencher) {
+        let setting = FontSetting::new();
+        let mut font = FontHandle::new(&MIGU[..]);
+        let mut tile = Tile::new(Some(Color::white()));
+        b.iter(|| {
+            (0..100).for_each(|_| {
+                font.draw(&mut tile, 'あ', &setting).unwrap();
+                font.cache.clear();
+            });
+        });
+    }
+
+    #[bench]
+    fn with_cache(b: &mut Bencher) {
+        let setting = FontSetting::new();
+        let mut font = FontHandle::new(&MIGU[..]);
+        let mut tile = Tile::new(Some(Color::white()));
+        b.iter(|| {
+            (0..100).for_each(|_| {
+                font.draw(&mut tile, 'あ', &setting).unwrap();
+            });
+        });
     }
 }

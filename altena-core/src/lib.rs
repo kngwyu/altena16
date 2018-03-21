@@ -1,5 +1,5 @@
 #![feature(conservative_impl_trait, dyn_trait, iterator_try_fold, match_default_bindings, nll,
-           try_trait, universal_impl_trait)]
+           test, try_trait, universal_impl_trait)]
 
 extern crate ansi_term;
 extern crate euclid;
@@ -13,6 +13,7 @@ extern crate piston;
 extern crate rect_iter;
 extern crate rusttype;
 extern crate sdl2_window;
+extern crate test;
 extern crate tuple_map;
 
 mod app;
