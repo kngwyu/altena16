@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use frame::Frame;
 use frame::dottypes::*;
 
-/// Sprite is a set of frames which an object has
+/// Sprite is a set of `Drawing objects` which an object has
 pub struct Sprite {
     /// id for sprite
     name: String,
@@ -18,7 +18,7 @@ pub struct Sprite {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum NodeType {
-    /// Root Sprite(Window)
+    /// Window
     Root,
     /// child has relative position in parent's coordinate
     Child(DotPoint),

@@ -13,7 +13,7 @@ impl<T> Scheduler<T> {
             inner: BinaryHeap::new(),
         }
     }
-    pub fn push(&mut self, schedule: ScheduleType, action: T) {
+    pub fn push(&mut self, schedule: ScheduleType<T>, action: T) {
         let schedule = Schedule::new(action, schedule);
         self.inner.push(schedule);
     }
@@ -39,7 +39,7 @@ impl<T: Clone> Scheduler<T> {
                     let next = Schedule::new(schedule.action, ScheduleType::Span(s));
                     nexts.push(next);
                 }
-                ScheduleType::RepeatedOnce { span: s, next: _ } => {
+                ScheduleType::RepeatedOnce { span: s, .. } => {
                     let typ = ScheduleType::RepeatedOnce {
                         span: s,
                         next: count + s,
@@ -70,6 +70,11 @@ impl<T: Clone> Scheduler<T> {
                         nexts.push(next);
                     }
                 }
+                // ScheduleType::Iter {
+                //     iter: iter,
+                //     next: n,
+                //     span: s,
+                // } => {}
                 _ => {}
             }
         }
@@ -80,12 +85,12 @@ impl<T: Clone> Scheduler<T> {
 
 struct Schedule<T> {
     action: T,
-    typ: ScheduleType,
+    typ: ScheduleType<T>,
     key: Clock,
 }
 
 impl<T> Schedule<T> {
-    fn new(action: T, typ: ScheduleType) -> Schedule<T> {
+    fn new(action: T, typ: ScheduleType<T>) -> Schedule<T> {
         let key = u64::max_value() ^ typ.start();
         Schedule {
             action: action,
@@ -95,8 +100,7 @@ impl<T> Schedule<T> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ScheduleType {
+pub enum ScheduleType<T> {
     Once(Clock),
     Span(Span),
     RepeatedOnce {
@@ -109,34 +113,36 @@ pub enum ScheduleType {
         next: Span,
         exec_span: Clock,
     },
+    Iter {
+        iter: Box<dyn Iterator<Item = T>>,
+        next: Clock,
+        span: Clock,
+    },
 }
 
-impl ScheduleType {
+impl<T> ScheduleType<T> {
     fn start(&self) -> Clock {
         match *self {
             ScheduleType::Once(c) => c,
             ScheduleType::Span(s) => s.start,
-            ScheduleType::RepeatedOnce { span: _, next: c } => c,
-            ScheduleType::RepeatedSpan {
-                span: _,
-                next: s,
-                exec_span: _,
-            } => s.start,
+            ScheduleType::RepeatedOnce { next: c, .. } => c,
+            ScheduleType::RepeatedSpan { next: s, .. } => s.start,
+            ScheduleType::Iter { next: s, .. } => s,
         }
     }
-    fn once(start: Clock) -> ScheduleType {
+    fn once(start: Clock) -> ScheduleType<T> {
         ScheduleType::Once(start)
     }
-    fn span(start: Clock, span: Clock) -> ScheduleType {
+    fn span(start: Clock, span: Clock) -> ScheduleType<T> {
         ScheduleType::Span(Span::new(start, start + span - 1))
     }
-    fn repeated_once(start: Clock, span: Clock) -> ScheduleType {
+    fn repeated_once(start: Clock, span: Clock) -> ScheduleType<T> {
         ScheduleType::RepeatedOnce {
             span: span,
             next: start,
         }
     }
-    fn repeated_span(start: Clock, span: Clock, exec_span: Clock) -> ScheduleType {
+    fn repeated_span(start: Clock, span: Clock, exec_span: Clock) -> ScheduleType<T> {
         let next = Span::new(start, start + exec_span - 1);
         ScheduleType::RepeatedSpan {
             span: span,

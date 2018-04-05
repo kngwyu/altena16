@@ -1,6 +1,4 @@
-#![feature(conservative_impl_trait, dyn_trait, iterator_try_fold, match_default_bindings, nll,
-           test, try_trait, universal_impl_trait)]
-
+#![feature(dyn_trait, iterator_try_fold, nll, test, try_trait)]
 extern crate ansi_term;
 extern crate euclid;
 extern crate graphics;
@@ -29,14 +27,14 @@ mod tile;
 mod ui;
 
 use opengl_graphics::{Filter, GlGraphics, OpenGL, Texture, TextureSettings};
-use sdl2_window::Sdl2Window;
-use piston::window::WindowSettings;
 use piston::event_loop::{EventLoop, EventSettings, Events};
 use piston::input::{Event, Input, Loop};
-use tuple_map::*;
-use std::rc::Rc;
+use piston::window::WindowSettings;
+use sdl2_window::Sdl2Window;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::rc::Rc;
+use tuple_map::*;
 
 use app::{App, AppMessage};
 use frame::dottypes::*;

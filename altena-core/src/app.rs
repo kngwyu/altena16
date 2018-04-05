@@ -3,6 +3,7 @@
 use piston::input::Event;
 use image::RgbaImage;
 use opengl_graphics::Texture;
+use std::collections::{HashMap, hash_map::*};
 /// messages used to Mode transition
 pub enum AppMessage {
     Transit(String),
