@@ -1,11 +1,11 @@
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 
-use std::fmt;
-use std::error::Error;
 use rusttype::{point, Font, FontCollection, Point, Scale};
+use std::error::Error;
+use std::fmt;
 
-use rect_iter::{GetMut2D, IndexError, RectRange, ToPoint};
+use rect_iter::{GetMut2D, IndexError, IntoTuple2, RectRange};
 use tile::tiletypes::*;
 use tile::{Alpha, Blend, Color};
 use tuple_map::TupleMap2;
@@ -137,10 +137,10 @@ impl FontSetting {
     }
     pub fn start<P, T>(&mut self, p: P) -> &mut Self
     where
-        P: ToPoint<T>,
+        P: IntoTuple2<T>,
         T: Into<f32>,
     {
-        let (x, y) = p.to_point().map(T::into);
+        let (x, y) = p.into_tuple2().map(T::into);
         self.start = point(x, y);
         self
     }
@@ -185,9 +185,9 @@ impl FontCache {
 
 mod font_test {
     use super::*;
-    use tile::Tile;
     use rect_iter::Get2D;
     use test::Bencher;
+    use tile::Tile;
     const MIGU: &[u8; 3137552] = include_bytes!("../../assets/migu-1m-regular.ttf");
     #[test]
     fn draw_tile() {

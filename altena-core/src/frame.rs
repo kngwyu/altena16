@@ -1,18 +1,18 @@
 //! tile, frame, collision detection
 
+use euclid::{point2, rect, vec2, TypedRect, TypedVector2D};
 use image::{Rgba, RgbaImage};
-use euclid::{rect, TypedRect, TypedVector2D, point2, vec2};
 use num_traits::{Num, ToPrimitive};
-use rect_iter::{copy_rect, copy_rect_conv, gen_rect_conv, Get2D, RectRange, ToPoint};
+use rect_iter::{copy_rect, copy_rect_conv, gen_rect_conv, Get2D, IntoTuple2, RectRange};
 use tuple_map::TupleMap2;
 
-use std::ops::Range;
-use std::slice;
 use std::cmp::{max, min};
 use std::fmt;
+use std::ops::Range;
+use std::slice;
 
-use tile::{Alpha, AltenaAlpha, Color, Dot, Tile};
 use tile::tiletypes::*;
+use tile::{Alpha, AltenaAlpha, Color, Dot, Tile};
 
 pub mod dottypes {
     use euclid::*;
@@ -43,11 +43,11 @@ impl ToDotVec for DotVector {
 }
 
 /// Slide ractangle(ract.origin += offset).
-fn slide_rect<T: Num + Copy, P: ToPoint<T>, Unit>(
+fn slide_rect<T: Num + Copy, P: IntoTuple2<T>, Unit>(
     rect: TypedRect<T, Unit>,
     offset: P,
 ) -> TypedRect<T, Unit> {
-    let offset = offset.to_point();
+    let offset = offset.into_tuple2();
     TypedRect {
         origin: point2(rect.origin.x + offset.0, rect.origin.y + offset.1),
         size: rect.size,
